@@ -5,3 +5,7 @@ coverage/
 node_modules/
 next-env.d.ts
 package-lock.json
+
+# Згенеровані drizzle-kit: снапшот і журнал міграцій він переписує сам,
+# і його форматування має лишатись рівно таким, як він очікує.
+src/db/migrations/

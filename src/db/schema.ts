@@ -1,0 +1,172 @@
+import { sql } from "drizzle-orm";
+import {
+  char,
+  check,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+/**
+ * Спільні для всіх таблиць службові колонки.
+ *
+ * `withTimezone` тут принципово: сервер працює в UTC, а всі дати в застосунку
+ * київські — без TZ у типі різниця вилізла б у звітах за місяць.
+ */
+const timestamps = {
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+};
+
+/**
+ * Заправка.
+ *
+ * Гроші й обʼєм — цілі числа (копійки та мілілітри), ніяких float: 0.1 + 0.2
+ * у типі double поступово рознесло б суми по місяцях.
+ *
+ * Зберігаємо всі три числа — обʼєм, ціну і суму — хоча одне з них завжди
+ * похідне. Якби ми тримали лише два, кожен перерахунок історичного запису
+ * давав би трохи інший результат через округлення; так значення фіксується
+ * рівно таким, яким його побачив користувач у момент внесення.
+ *
+ * Сама тотожність «обʼєм × ціна ≈ сума» перевіряється в zod-схемі, де під неї
+ * можна дати зрозуміле повідомлення. У БД лишаємо тільки те, що не залежить
+ * від правил округлення.
+ */
+export const fuelEntries = pgTable(
+  "fuel_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    filledAt: date("filled_at", { mode: "string" }).notNull(),
+    volumeMl: integer("volume_ml").notNull(),
+    pricePerLiterKopecks: integer("price_per_liter_kopecks").notNull(),
+    totalKopecks: integer("total_kopecks").notNull(),
+    note: text("note"),
+    ...timestamps,
+  },
+  (table) => [
+    // Головний доступ до таблиці — «останні заправки» і «за місяць».
+    index("fuel_entries_filled_at_idx").on(table.filledAt.desc()),
+    check("fuel_entries_volume_positive", sql`${table.volumeMl} > 0`),
+    check(
+      "fuel_entries_price_positive",
+      sql`${table.pricePerLiterKopecks} > 0`,
+    ),
+    check("fuel_entries_total_positive", sql`${table.totalKopecks} > 0`),
+  ],
+);
+
+/**
+ * Показання одометра — вносяться раз на місяць за пуш-нагадуванням.
+ *
+ * Одне показання на дату: повторний запис за той самий день має бути
+ * виправленням, а не другим рядком, інакше різниця пробігу за місяць попливе.
+ *
+ * Умисно НЕ вимагаємо на рівні БД, щоб пробіг лише зростав: помилковий запис
+ * треба мати змогу виправити вниз. Перевірку робить сервіс — попередженням.
+ */
+export const odometerReadings = pgTable(
+  "odometer_readings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recordedAt: date("recorded_at", { mode: "string" }).notNull().unique(),
+    odometerKm: integer("odometer_km").notNull(),
+    note: text("note"),
+    ...timestamps,
+  },
+  (table) => [
+    check("odometer_readings_km_positive", sql`${table.odometerKm} > 0`),
+  ],
+);
+
+/**
+ * Web Push підписки.
+ *
+ * `endpoint` унікальний — це і є ідентифікатор підписки з боку браузера.
+ * Одна людина, але кілька пристроїв (айфон з головного екрана, десктоп),
+ * тому таблиця, а не один рядок.
+ */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  failureCount: integer("failure_count").notNull().default(0),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+/**
+ * Журнал місячних вивантажень у Google Sheets.
+ *
+ * `period` унікальний — саме він робить крон ідемпотентним: повторний запуск
+ * (а Versel не гарантує рівно один) не додасть у таблицю другий рядок за
+ * той самий місяць.
+ *
+ * `rowSnapshot` зберігає те, що реально пішло в аркуш: якщо цифри розійдуться,
+ * буде видно, чи це аркуш редагували руками, чи вивантаження дало інше.
+ */
+export const monthlyExports = pgTable(
+  "monthly_exports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    period: char("period", { length: 7 }).notNull().unique(),
+    exportedAt: timestamp("exported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    rowSnapshot: jsonb("row_snapshot").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    // Формат '2026-08'. Без \d — у SQL-літералі це зайвий привід помилитись.
+    check(
+      "monthly_exports_period_format",
+      sql`${table.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`,
+    ),
+  ],
+);
+
+/**
+ * Лічильник невдалих спроб входу.
+ *
+ * PIN — чотири цифри, тобто 10 000 комбінацій. Хешування тут не рятує:
+ * єдиний реальний захист — обмежити темп спроб, тому стан лічильника має
+ * пережити перезапуск інстансу й лежить у БД, а не в памʼяті процесу.
+ */
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    ipHash: text("ip_hash").primaryKey(),
+    failedCount: integer("failed_count").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    check("login_attempts_count_non_negative", sql`${table.failedCount} >= 0`),
+  ],
+);
+
+export type FuelEntryRow = typeof fuelEntries.$inferSelect;
+export type NewFuelEntryRow = typeof fuelEntries.$inferInsert;
+
+export type OdometerReadingRow = typeof odometerReadings.$inferSelect;
+export type NewOdometerReadingRow = typeof odometerReadings.$inferInsert;
+
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
+
+export type MonthlyExportRow = typeof monthlyExports.$inferSelect;
+export type NewMonthlyExportRow = typeof monthlyExports.$inferInsert;
+
+export type LoginAttemptRow = typeof loginAttempts.$inferSelect;
