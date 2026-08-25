@@ -1,15 +1,15 @@
 CREATE TABLE "fuel_entries" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"filled_at" date NOT NULL,
-	"volume_ml" integer NOT NULL,
-	"price_per_liter_kopecks" integer NOT NULL,
-	"total_kopecks" integer NOT NULL,
+	"volume_liters" numeric(10, 2) NOT NULL,
+	"price_per_liter" numeric(10, 2) NOT NULL,
+	"total_cost" numeric(10, 2) NOT NULL,
 	"note" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "fuel_entries_volume_positive" CHECK ("fuel_entries"."volume_ml" > 0),
-	CONSTRAINT "fuel_entries_price_positive" CHECK ("fuel_entries"."price_per_liter_kopecks" > 0),
-	CONSTRAINT "fuel_entries_total_positive" CHECK ("fuel_entries"."total_kopecks" > 0)
+	CONSTRAINT "fuel_entries_volume_positive" CHECK ("fuel_entries"."volume_liters" > 0),
+	CONSTRAINT "fuel_entries_price_positive" CHECK ("fuel_entries"."price_per_liter" > 0),
+	CONSTRAINT "fuel_entries_total_positive" CHECK ("fuel_entries"."total_cost" > 0)
 );
 --> statement-breakpoint
 CREATE TABLE "login_attempts" (

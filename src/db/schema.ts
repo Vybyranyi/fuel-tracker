@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -29,10 +30,22 @@ const timestamps = {
 };
 
 /**
- * Заправка.
+ * Обʼєм і гроші — `numeric(10, 2)`.
  *
- * Гроші й обʼєм — цілі числа (копійки та мілілітри), ніяких float: 0.1 + 0.2
- * у типі double поступово рознесло б суми по місяцях.
+ * `numeric` у Postgres — точна десяткова арифметика, а не float: це саме той
+ * тип, під який гроші й придумані, тож 0.1 + 0.2 тут не «попливе». Масштаб 2
+ * задає рівно два знаки після коми на рівні самого типу — і в базі, і при
+ * будь-якому читанні. Третій знак записати неможливо: Postgres округлить його
+ * при вставці.
+ *
+ * У TypeScript Drizzle віддає `numeric` рядком ("40.50"), а не числом — саме
+ * щоб ніхто випадково не почав рахувати гроші у float. Репозиторій переводить
+ * ці рядки в цілі соті для домену й назад; домен рахує тільки в цілих.
+ */
+const money = (name: string) => numeric(name, { precision: 10, scale: 2 });
+
+/**
+ * Заправка.
  *
  * Зберігаємо всі три числа — обʼєм, ціну і суму — хоча одне з них завжди
  * похідне. Якби ми тримали лише два, кожен перерахунок історичного запису
@@ -48,21 +61,18 @@ export const fuelEntries = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     filledAt: date("filled_at", { mode: "string" }).notNull(),
-    volumeMl: integer("volume_ml").notNull(),
-    pricePerLiterKopecks: integer("price_per_liter_kopecks").notNull(),
-    totalKopecks: integer("total_kopecks").notNull(),
+    volumeLiters: money("volume_liters").notNull(),
+    pricePerLiter: money("price_per_liter").notNull(),
+    totalCost: money("total_cost").notNull(),
     note: text("note"),
     ...timestamps,
   },
   (table) => [
     // Головний доступ до таблиці — «останні заправки» і «за місяць».
     index("fuel_entries_filled_at_idx").on(table.filledAt.desc()),
-    check("fuel_entries_volume_positive", sql`${table.volumeMl} > 0`),
-    check(
-      "fuel_entries_price_positive",
-      sql`${table.pricePerLiterKopecks} > 0`,
-    ),
-    check("fuel_entries_total_positive", sql`${table.totalKopecks} > 0`),
+    check("fuel_entries_volume_positive", sql`${table.volumeLiters} > 0`),
+    check("fuel_entries_price_positive", sql`${table.pricePerLiter} > 0`),
+    check("fuel_entries_total_positive", sql`${table.totalCost} > 0`),
   ],
 );
 

@@ -1,5 +1,5 @@
 {
-  "id": "15232b28-66d0-4d96-be60-462b909de39a",
+  "id": "f0eecd0c-3fd3-4c1a-86fa-97a5242bdff5",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -21,21 +21,21 @@
           "primaryKey": false,
           "notNull": true
         },
-        "volume_ml": {
-          "name": "volume_ml",
-          "type": "integer",
+        "volume_liters": {
+          "name": "volume_liters",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": true
         },
-        "price_per_liter_kopecks": {
-          "name": "price_per_liter_kopecks",
-          "type": "integer",
+        "price_per_liter": {
+          "name": "price_per_liter",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": true
         },
-        "total_kopecks": {
-          "name": "total_kopecks",
-          "type": "integer",
+        "total_cost": {
+          "name": "total_cost",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": true
         },
@@ -84,15 +84,15 @@
       "checkConstraints": {
         "fuel_entries_volume_positive": {
           "name": "fuel_entries_volume_positive",
-          "value": "\"fuel_entries\".\"volume_ml\" > 0"
+          "value": "\"fuel_entries\".\"volume_liters\" > 0"
         },
         "fuel_entries_price_positive": {
           "name": "fuel_entries_price_positive",
-          "value": "\"fuel_entries\".\"price_per_liter_kopecks\" > 0"
+          "value": "\"fuel_entries\".\"price_per_liter\" > 0"
         },
         "fuel_entries_total_positive": {
           "name": "fuel_entries_total_positive",
-          "value": "\"fuel_entries\".\"total_kopecks\" > 0"
+          "value": "\"fuel_entries\".\"total_cost\" > 0"
         }
       },
       "isRLSEnabled": false
