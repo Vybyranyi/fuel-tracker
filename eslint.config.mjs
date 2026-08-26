@@ -18,6 +18,10 @@ import prettier from "eslint-config-prettier/flat";
 
 /** Шари всередині `src/features/<feature>/`, куди не можна імпортувати «вгору». */
 const upwardLayers = {
+  // `schemas` описують форму вхідних даних і спираються лише на domain:
+  // їх читає і сервер, і форма, тож затягнути туди БД означало б потягнути
+  // її і в клієнтський бандл.
+  schemas: ["repository", "services", "actions", "components", "hooks"],
   repository: ["services", "actions", "components", "hooks"],
   services: ["actions", "components", "hooks"],
   actions: ["components", "hooks"],
