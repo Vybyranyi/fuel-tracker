@@ -129,6 +129,14 @@ export const deleteFuelEntrySchema = z.object({
   id: z.uuid("Некоректний ідентифікатор"),
 });
 
+/**
+ * Те, що лежить у полях форми, — рядки до перетворення.
+ *
+ * Виводиться зі схеми, а не описується окремо: інакше два описи однієї
+ * структури рано чи пізно розійшлись би.
+ */
+export type FuelEntryFormValues = z.input<typeof createFuelEntrySchema>;
+
 export type CreateFuelEntryInput = z.infer<typeof createFuelEntrySchema>;
 export type UpdateFuelEntryInput = z.infer<typeof updateFuelEntrySchema>;
 export type DeleteFuelEntryInput = z.infer<typeof deleteFuelEntrySchema>;

@@ -29,12 +29,19 @@ const FormFieldContext = React.createContext<FormFieldContextValue>(
   {} as FormFieldContextValue,
 );
 
+/**
+ * До третього генерика: react-hook-form розрізняє значення полів і значення
+ * після перетворення резолвером. У нашої форми це різні типи — у полях
+ * лежать рядки, а zod віддає вже `Decimal2`. Компонент від shadcn цей
+ * параметр не пропускав, тож `control` не сходився за типом.
+ */
 const FormField = <
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
+  TTransformedValues = TFieldValues,
 >({
   ...props
-}: ControllerProps<TFieldValues, TName>) => {
+}: ControllerProps<TFieldValues, TName, TTransformedValues>) => {
   return (
     <FormFieldContext.Provider value={{ name: props.name }}>
       <Controller {...props} />
