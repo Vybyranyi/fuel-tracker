@@ -242,7 +242,7 @@ export function FuelEntryForm({
                     {...field}
                     type="date"
                     required
-                    className="block h-11 w-full max-w-full appearance-none text-base"
+                    className="h-11 w-full max-w-full appearance-none text-base"
                   />
                 </div>
               </FormControl>
