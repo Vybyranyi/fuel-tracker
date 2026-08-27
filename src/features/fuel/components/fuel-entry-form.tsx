@@ -237,7 +237,14 @@ export function FuelEntryForm({
                   воно відкриває звичний системний пікер, який зручніший за
                   будь-який власний, і не тягне зайвого коду в бандл.
                 */}
-                <Input {...field} type="date" className="h-11 text-base" />
+                <div className="relative">
+                  <Input
+                    {...field}
+                    type="date"
+                    required
+                    className="block h-11 w-full max-w-full appearance-none text-base"
+                  />
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -260,7 +267,7 @@ export function FuelEntryForm({
                   {...field}
                   value={field.value ?? ""}
                   placeholder="ОККО на трасі"
-                  className="h-11 text-base"
+                  className="block h-11 w-full text-base"
                 />
               </FormControl>
               <FormMessage />
