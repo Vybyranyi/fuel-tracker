@@ -1,5 +1,6 @@
 import { Fuel } from "lucide-react";
 
+import { SignOutButton } from "@/features/auth/components/sign-out-button";
 import { FuelEntryForm } from "@/features/fuel/components/fuel-entry-form";
 import { FuelEntryList } from "@/features/fuel/components/fuel-entry-list";
 import {
@@ -25,7 +26,10 @@ export default async function FuelEntryPage() {
     <main className="flex flex-col gap-8 pt-8">
       <header className="flex items-center gap-3">
         <Fuel className="size-6 text-muted-foreground" aria-hidden />
-        <h1 className="text-2xl font-semibold tracking-tight">Заправка</h1>
+        <h1 className="flex-1 text-2xl font-semibold tracking-tight">
+          Заправка
+        </h1>
+        <SignOutButton />
       </header>
 
       <FuelEntryForm defaults={defaults} />
