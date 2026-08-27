@@ -40,6 +40,14 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Скло на світлому: майже білий матеріал із виразним відблиском. */
+  --glass-background: rgb(255 255 255 / 0.55);
+  --glass-background-opaque: rgb(250 250 250 / 0.96);
+  --glass-border: rgb(0 0 0 / 0.08);
+  --glass-highlight: rgb(255 255 255 / 0.9);
+  --glass-shadow: rgb(0 0 0 / 0.18);
+  --glass-active: rgb(0 0 0 / 0.06);
 }
 
 .dark {
@@ -77,6 +85,17 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /*
+   * Скло на темному: матеріал світлий, а не темний — інакше на майже чорному
+   * тлі панель зникає, і замість скла виходить просто діра.
+   */
+  --glass-background: rgb(255 255 255 / 0.08);
+  --glass-background-opaque: rgb(38 38 38 / 0.96);
+  --glass-border: rgb(255 255 255 / 0.12);
+  --glass-highlight: rgb(255 255 255 / 0.16);
+  --glass-shadow: rgb(0 0 0 / 0.6);
+  --glass-active: rgb(255 255 255 / 0.14);
 }
 
 @theme inline {
@@ -161,5 +180,39 @@
   html {
     -webkit-text-size-adjust: 100%;
     touch-action: manipulation;
+  }
+}
+
+/**
+ * Скляна поверхня в дусі Liquid Glass.
+ *
+ * Матеріал складається з чотирьох шарів, і саме разом вони читаються як скло,
+ * а не як напівпрозорий прямокутник:
+ *   • розмиття з підсиленою насиченістю — крізь панель видно колір контенту;
+ *   • дуже світлий власний фон, щоб текст лишався читабельним;
+ *   • тонкий кант по краю — межа матеріалу;
+ *   • світліша смужка зсередини згори — відблиск, від якого поверхня
+ *     виглядає опуклою.
+ *
+ * Окремим класом, а не набором утиліт у розмітці: шарів забагато, і в
+ * атрибуті class вони перетворюються на нечитабельну стіну.
+ */
+@utility glass-surface {
+  background: var(--glass-background);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-highlight),
+    0 8px 32px -8px var(--glass-shadow);
+  /* Тільки стандартна властивість: якщо дописати ще й -webkit-, Lightning CSS
+     вважає, що префіксної форми досить, і викидає нестандартну — розмиття
+     зникає всюди, крім WebKit. Префікси він розставляє сам. */
+  backdrop-filter: blur(24px) saturate(180%);
+
+  /*
+   * Там, де розмиття не підтримується, прозорий фон лишив би контент
+   * просвічувати крізь підписи. Робимо поверхню щільною.
+   */
+  @supports not (backdrop-filter: blur(1px)) {
+    background: var(--glass-background-opaque);
   }
 }
