@@ -1,7 +1,12 @@
-import {
-  createSafeActionClient,
-  DEFAULT_SERVER_ERROR_MESSAGE,
-} from "next-safe-action";
+import { createSafeActionClient } from "next-safe-action";
+
+/**
+ * Що бачить користувач, коли сталося щось непередбачене.
+ *
+ * Своє формулювання, а не типове з бібліотеки: те англійською, і посеред
+ * україномовного інтерфейсу виглядало б як збій самого застосунку.
+ */
+const GENERIC_ERROR_MESSAGE = "Щось пішло не так. Спробуйте ще раз.";
 
 /**
  * Помилка, яку можна показати користувачеві дослівно.
@@ -28,6 +33,6 @@ export const actionClient = createSafeActionClient({
 
     // Деталі лишаються в логах Versel, до браузера не доходять.
     console.error("Server action failed:", error);
-    return DEFAULT_SERVER_ERROR_MESSAGE;
+    return GENERIC_ERROR_MESSAGE;
   },
 });

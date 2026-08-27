@@ -1,16 +1,12 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
 import { signInAction } from "@/features/auth/actions/auth.actions";
+import { PinKeypad } from "@/features/auth/components/pin-keypad";
 import { PIN_LENGTH } from "@/features/auth/domain/verifier";
+import { cn } from "@/lib/utils";
 
 export function PinForm() {
   const [pin, setPin] = useState("");
@@ -29,53 +25,84 @@ export function PinForm() {
     },
   });
 
-  function handleChange(value: string): void {
-    setPin(value);
-    setError(null);
+  const appendDigit = useCallback(
+    (digit: string) => {
+      if (isPending || pin.length >= PIN_LENGTH) return;
 
-    // Автосабміт на останній цифрі: окрема кнопка «Увійти» під чотирма
-    // клітинками — зайвий тап там, де намір і так однозначний. Робимо це в
-    // обробнику зміни, а не в ефекті: ефект тут дав би зайвий цикл рендера.
-    if (value.length === PIN_LENGTH) {
-      execute({ pin: value });
+      const next = pin + digit;
+      setError(null);
+      setPin(next);
+
+      // Автосабміт на останній цифрі: окрема кнопка «Увійти» — зайвий тап
+      // там, де намір і так однозначний. Викликаємо тут, а не всередині
+      // оновлювача стану: той має лишатись чистою функцією, інакше в dev
+      // React виконає його двічі й дія піде двома запитами.
+      if (next.length === PIN_LENGTH) execute({ pin: next });
+    },
+    [pin, execute, isPending],
+  );
+
+  const removeDigit = useCallback(() => {
+    if (isPending) return;
+    setError(null);
+    setPin(pin.slice(0, -1));
+  }, [pin, isPending]);
+
+  /**
+   * Фізична клавіатура теж має працювати — на ноуті тягтись мишею до
+   * намальованих кнопок було б безглуздо. Слухаємо вікно, бо фокусувати
+   * нічого: жодного поля вводу на сторінці немає.
+   */
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key >= "0" && event.key <= "9") {
+        appendDigit(event.key);
+      } else if (event.key === "Backspace") {
+        removeDigit();
+      }
     }
-  }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [appendDigit, removeDigit]);
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <InputOTP
-        maxLength={PIN_LENGTH}
-        value={pin}
-        onChange={handleChange}
-        disabled={isPending}
-        autoFocus
-        // Цифрова клавіатура на телефоні.
-        inputMode="numeric"
-        pattern="[0-9]*"
-        aria-label="PIN"
-      >
-        <InputOTPGroup>
-          {Array.from({ length: PIN_LENGTH }, (_, index) => (
-            <InputOTPSlot
-              key={index}
-              index={index}
-              className="size-14 text-xl"
-            />
-          ))}
-        </InputOTPGroup>
-      </InputOTP>
-
-      <p
-        className="min-h-5 text-sm text-destructive"
+    <div className="flex flex-col items-center gap-8">
+      <div
+        className={cn(
+          "flex gap-4",
+          // Струс замість самого лише тексту: промах видно одразу, ще до того
+          // як очі дійдуть до підпису.
+          error && "animate-pin-shake",
+        )}
         role="status"
         aria-live="polite"
+        aria-label={`Введено ${pin.length} з ${PIN_LENGTH} цифр`}
       >
+        {Array.from({ length: PIN_LENGTH }, (_, index) => (
+          <span
+            key={index}
+            aria-hidden
+            className={cn(
+              "size-4 rounded-full border-2 transition-colors",
+              index < pin.length
+                ? "border-foreground bg-foreground"
+                : "border-muted-foreground/40",
+              error && "border-destructive",
+            )}
+          />
+        ))}
+      </div>
+
+      <PinKeypad
+        onDigit={appendDigit}
+        onBackspace={removeDigit}
+        disabled={isPending}
+      />
+
+      <p className="min-h-5 text-sm text-destructive" role="alert">
         {isPending ? null : error}
       </p>
-
-      {isPending ? (
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
-      ) : null}
     </div>
   );
 }
