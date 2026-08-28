@@ -7,6 +7,7 @@ import {
   getFormDefaults,
   getRecentEntries,
 } from "@/features/fuel/services/fuel-entries.service";
+import { InstallHint } from "@/features/pwa/components/install-hint";
 
 /**
  * Значення за замовчуванням читаються з бази на кожен запит: ціна має бути
@@ -40,6 +41,10 @@ export default async function FuelEntryPage() {
         </h2>
         <FuelEntryList entries={entries} />
       </section>
+
+      {/* Внизу, а не над формою: внести заправку важливіше, ніж встановити
+          застосунок, і підказка не має відсувати головну дію. */}
+      <InstallHint />
     </main>
   );
 }

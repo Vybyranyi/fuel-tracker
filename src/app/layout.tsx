@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { ServiceWorkerRegistrar } from "@/features/pwa/components/service-worker-registrar";
 
 import "./globals.css";
 
@@ -19,6 +20,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Пальне",
   description: "Облік заправок і витрат на пальне",
+  manifest: "/manifest.webmanifest",
+  // Без цього блоку iPhone відкривав би застосунок з головного екрана як
+  // звичайну вкладку Safari — з адресним рядком і без пуш-сповіщень.
+  appleWebApp: {
+    capable: true,
+    title: "Пальне",
+    // Смуга стану лишається системною: `black-translucent` дав би білий текст
+    // завжди, і на світлій темі його не було б видно.
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {
@@ -52,6 +63,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         >
           {children}
           <Toaster position="top-center" richColors />
+          <ServiceWorkerRegistrar />
         </ThemeProvider>
       </body>
     </html>
