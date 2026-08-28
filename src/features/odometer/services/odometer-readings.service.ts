@@ -6,7 +6,12 @@ import {
 } from "@/features/odometer/domain/odometer-reading";
 import * as repository from "@/features/odometer/repository/odometer-readings.repository";
 import type { SaveOdometerReadingInput } from "@/features/odometer/schemas/odometer-reading.schema";
-import { todayInKyiv, type IsoDate } from "@/lib/date";
+import {
+  monthKeyOf,
+  todayInKyiv,
+  type IsoDate,
+  type MonthKey,
+} from "@/lib/date";
 import { UserFacingError } from "@/lib/safe-action";
 
 /** Скільки останніх показань показуємо під формою. */
@@ -65,6 +70,18 @@ export async function saveReading(
   });
 
   return { status: "saved", reading };
+}
+
+/**
+ * Місяць, за який востаннє вносили пробіг.
+ *
+ * Потрібен щоденному диспетчеру: нагадувати про пробіг за місяць, який уже
+ * записали, — це сповіщення заради сповіщення, і саме від таких люди й
+ * вимикають нагадування зовсім.
+ */
+export async function getLatestReadingMonth(): Promise<MonthKey | null> {
+  const latest = await repository.findLatestReading();
+  return latest ? monthKeyOf(latest.recordedAt) : null;
 }
 
 export async function deleteReading(id: string): Promise<void> {

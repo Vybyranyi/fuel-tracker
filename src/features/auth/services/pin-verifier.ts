@@ -1,17 +1,13 @@
 import "server-only";
 
-import { createHash, timingSafeEqual } from "node:crypto";
-
 import { PIN_LENGTH, type AuthVerifier } from "@/features/auth/domain/verifier";
+import { secretsMatch } from "@/lib/secret";
 
 /**
  * Звірка PIN із тим, що задано в оточенні.
  *
- * Порівнюємо не рядки, а їхні SHA-256 — з двох причин. По-перше,
- * `timingSafeEqual` вимагає однакової довжини буферів і кидає виняток на
- * різній: хеш завжди 32 байти, тож довжина введеного не «протікає» через
- * помилку. По-друге, саме порівняння лишається сталим за часом, тож PIN не
- * можна підібрати цифра за цифрою, вимірюючи час відповіді.
+ * Порівняння — стале за часом (див. `secretsMatch`): для чотирьох цифр темп
+ * спроб і є єдиним реальним захистом, тож підказувати підбору нічим не варто.
  */
 export class PinVerifier implements AuthVerifier<string> {
   readonly method = "pin" as const;
@@ -28,10 +24,6 @@ export class PinVerifier implements AuthVerifier<string> {
       );
     }
 
-    return timingSafeEqual(sha256(pin), sha256(expected));
+    return secretsMatch(pin, expected);
   }
-}
-
-function sha256(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
 }
