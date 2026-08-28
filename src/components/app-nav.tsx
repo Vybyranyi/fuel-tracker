@@ -1,17 +1,18 @@
 "use client";
 
-import { Fuel, Gauge } from "lucide-react";
+import { ChartColumn, Fuel, Gauge } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
 /**
- * Розділи застосунку. Список росте разом із планом — статистика й
- * налаштування стануть тут ще двома рядками.
+ * Розділи застосунку. Список росте разом із планом — налаштування стануть тут
+ * ще одним рядком.
  */
 const TABS = [
   { href: "/", label: "Заправка", icon: Fuel },
+  { href: "/stats", label: "Статистика", icon: ChartColumn },
   { href: "/odometer", label: "Пробіг", icon: Gauge },
 ] as const;
 

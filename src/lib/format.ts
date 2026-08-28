@@ -28,25 +28,35 @@ const wholeFormatter = new Intl.NumberFormat(LOCALE, {
   maximumFractionDigits: 0,
 });
 
+/**
+ * Голе число: `2 351,49`.
+ *
+ * Без одиниці — для таблиці, де вона стоїть у шапці: повторювати «₴» у
+ * кожному рядку означало б і шум, і зайву ширину, через яку остання колонка
+ * не влазила в екран.
+ */
+export function formatDecimal(value: Decimal2): string {
+  return normalizeSpaces(decimalFormatter.format(decimal2ToNumber(value)));
+}
+
 /** Гроші: `2 351,49 ₴`. */
 export function formatMoney(value: Decimal2): string {
-  return normalizeSpaces(
-    `${decimalFormatter.format(decimal2ToNumber(value))} ₴`,
-  );
+  return `${formatDecimal(value)} ₴`;
 }
 
 /** Обʼєм: `40,55 л`. */
 export function formatLiters(value: Decimal2): string {
-  return normalizeSpaces(
-    `${decimalFormatter.format(decimal2ToNumber(value))} л`,
-  );
+  return `${formatDecimal(value)} л`;
 }
 
 /** Ціна за літр: `57,99 ₴/л`. */
 export function formatPricePerLiter(value: Decimal2): string {
-  return normalizeSpaces(
-    `${decimalFormatter.format(decimal2ToNumber(value))} ₴/л`,
-  );
+  return `${formatDecimal(value)} ₴/л`;
+}
+
+/** Витрата: `8,01 л/100 км`. */
+export function formatConsumption(value: Decimal2): string {
+  return `${formatDecimal(value)} л/100 км`;
 }
 
 /** Пробіг: `152 340 км`. */
@@ -123,4 +133,25 @@ export function formatMonth(key: MonthKey): string {
 /** `серп.` — підпис осі на графіку, де місця обмаль. */
 export function formatMonthShort(key: MonthKey): string {
   return shortMonthFormatter.format(asUtcInstant(key));
+}
+
+/**
+ * Українська форма числівника: `1 заправка`, `2 заправки`, `5 заправок`.
+ *
+ * `Intl.PluralRules` дає категорію («one», «few», «many»), але не самі слова —
+ * їх усе одно доводиться подавати списком, тож беремо правило звідти, а не
+ * переписуємо його вручну з умовами на останню цифру.
+ */
+const pluralRules = new Intl.PluralRules(LOCALE);
+
+export function pluralize(
+  count: number,
+  forms: { one: string; few: string; many: string },
+): string {
+  const category = pluralRules.select(count);
+  return category === "one"
+    ? forms.one
+    : category === "few"
+      ? forms.few
+      : forms.many;
 }

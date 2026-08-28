@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isoDate, monthKey } from "@/lib/date";
 import {
+  formatConsumption,
   formatDayMonth,
   formatDecimalInput,
   formatFullDate,
@@ -10,6 +11,7 @@ import {
   formatMonth,
   formatMonthShort,
   formatMoney,
+  pluralize,
   formatPricePerLiter,
 } from "@/lib/format";
 import { decimal2FromNumber } from "@/lib/units";
@@ -85,5 +87,26 @@ describe("дати", () => {
     // і виводив у місцевому поясі, перше число поїхало б на попередній місяць.
     expect(formatDayMonth(isoDate("2026-03-01"))).toBe("1 березня");
     expect(formatDayMonth(isoDate("2026-12-31"))).toBe("31 грудня");
+  });
+});
+
+describe("formatConsumption", () => {
+  it("кома, а не крапка — як і в решті чисел на екрані", () => {
+    expect(formatConsumption(decimal2FromNumber(8.01))).toBe("8,01 л/100 км");
+    expect(formatConsumption(decimal2FromNumber(12.5))).toBe("12,50 л/100 км");
+  });
+});
+
+describe("pluralize", () => {
+  const forms = { one: "заправка", few: "заправки", many: "заправок" };
+
+  it("бере українську форму за числом", () => {
+    expect(pluralize(1, forms)).toBe("заправка");
+    expect(pluralize(2, forms)).toBe("заправки");
+    expect(pluralize(5, forms)).toBe("заправок");
+    expect(pluralize(11, forms)).toBe("заправок");
+    expect(pluralize(21, forms)).toBe("заправка");
+    expect(pluralize(36, forms)).toBe("заправок");
+    expect(pluralize(0, forms)).toBe("заправок");
   });
 });

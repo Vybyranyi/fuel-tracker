@@ -1,0 +1,56 @@
+import "server-only";
+
+import { asc, sql } from "drizzle-orm";
+
+import { getDb } from "@/db";
+import { fuelEntries, odometerReadings } from "@/db/schema";
+import type {
+  MonthlyAggregateRow,
+  OdometerPoint,
+} from "@/features/stats/domain/monthly-stats";
+import type { IsoDate } from "@/lib/date";
+
+/**
+ * Помісячні суми — агрегатом у SQL, а не в застосунку.
+ *
+ * Тягнути всі заправки, щоб додати їх у памʼяті, означало б з роками возити
+ * через мережу дедалі більший масив заради півдюжини чисел.
+ */
+export async function aggregateFuelByMonth(): Promise<MonthlyAggregateRow[]> {
+  const period = sql<string>`to_char(${fuelEntries.filledAt}, 'YYYY-MM')`;
+
+  const rows = await getDb()
+    .select({
+      period,
+      liters: sql<string>`sum(${fuelEntries.volumeLiters})`,
+      totalCost: sql<string>`sum(${fuelEntries.totalCost})`,
+      fillCount: sql<number>`count(*)::int`,
+    })
+    .from(fuelEntries)
+    .groupBy(period)
+    .orderBy(asc(period));
+
+  return rows;
+}
+
+/**
+ * Усі показання одометра.
+ *
+ * Тут агрегат у SQL не допоміг би: пробіг за місяць — це різниця між сусідніми
+ * записами, і рахувати її віконною функцією було б важче для читання, ніж
+ * чистою функцією в домені, яку видно з тестів.
+ */
+export async function listOdometerPoints(): Promise<OdometerPoint[]> {
+  const rows = await getDb()
+    .select({
+      recordedAt: odometerReadings.recordedAt,
+      odometerKm: odometerReadings.odometerKm,
+    })
+    .from(odometerReadings)
+    .orderBy(asc(odometerReadings.recordedAt));
+
+  return rows.map((row) => ({
+    recordedAt: row.recordedAt as IsoDate,
+    odometerKm: row.odometerKm,
+  }));
+}
