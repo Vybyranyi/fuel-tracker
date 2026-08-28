@@ -4,51 +4,28 @@ import { Share, X } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useIsStandalone } from "@/features/pwa/hooks/use-standalone";
 
 const DISMISSED_KEY = "fuel-tracker:install-hint-dismissed";
-const STANDALONE_QUERY = "(display-mode: standalone)";
 
 /**
- * Чи запущено застосунок з головного екрана.
- *
- * Дві перевірки, бо Safari на iPhone довго не підтримував `display-mode` і має
- * власний прапорець — а саме iPhone тут і цільовий пристрій.
- */
-function isStandalone(): boolean {
-  if (window.matchMedia(STANDALONE_QUERY).matches) return true;
-
-  const legacy = window.navigator as Navigator & { standalone?: boolean };
-  return legacy.standalone === true;
-}
-
-/**
- * Підписка на зміни: і на перехід у standalone, і на власне закриття підказки.
- *
  * `localStorage` про свої зміни в тій самій вкладці не повідомляє, тож
  * тримаємо власний список слухачів — інакше підказка не зникала б після
- * натискання «Зрозуміло» аж до перезавантаження.
+ * натискання на хрестик аж до перезавантаження.
  */
 const listeners = new Set<() => void>();
 
 function subscribe(onStoreChange: () => void): () => void {
   listeners.add(onStoreChange);
-  const query = window.matchMedia(STANDALONE_QUERY);
-  query.addEventListener("change", onStoreChange);
-
-  return () => {
-    listeners.delete(onStoreChange);
-    query.removeEventListener("change", onStoreChange);
-  };
+  return () => listeners.delete(onStoreChange);
 }
 
-function shouldShow(): boolean {
-  if (isStandalone()) return false;
-
+function isDismissed(): boolean {
   try {
-    return window.localStorage.getItem(DISMISSED_KEY) !== "1";
+    return window.localStorage.getItem(DISMISSED_KEY) === "1";
   } catch {
-    // Приватний режим може заборонити сховище — тоді просто показуємо.
-    return true;
+    // Приватний режим може заборонити сховище — тоді показуємо.
+    return false;
   }
 }
 
@@ -68,16 +45,12 @@ function dismiss(): void {
  * Показується, поки застосунок відкривають як звичайну сторінку. Це не просто
  * про зручність: на iPhone пуш-сповіщення працюють винятково для застосунку з
  * головного екрана, тож без цього кроку нагадування про пробіг не прийде.
- *
- * Стан читаємо через `useSyncExternalStore`, а не ефектом: на сервері
- * `matchMedia` і `localStorage` не існує, і серверний знімок чесно каже
- * «не показувати» — тож розмітка збігається, а підказка зʼявляється вже
- * після гідратації.
  */
 export function InstallHint() {
-  const visible = useSyncExternalStore(subscribe, shouldShow, () => false);
+  const standalone = useIsStandalone();
+  const dismissed = useSyncExternalStore(subscribe, isDismissed, () => true);
 
-  if (!visible) return null;
+  if (standalone || dismissed) return null;
 
   return (
     <aside className="flex gap-3 rounded-xl border bg-card p-4">

@@ -1,19 +1,17 @@
 "use client";
 
-import { ChartColumn, Fuel, Gauge } from "lucide-react";
+import { ChartColumn, Fuel, Gauge, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Розділи застосунку. Список росте разом із планом — налаштування стануть тут
- * ще одним рядком.
- */
+/** Розділи застосунку. */
 const TABS = [
   { href: "/", label: "Заправка", icon: Fuel },
   { href: "/stats", label: "Статистика", icon: ChartColumn },
   { href: "/odometer", label: "Пробіг", icon: Gauge },
+  { href: "/settings", label: "Налаштування", icon: Settings },
 ] as const;
 
 /** Ширина однієї вкладки. Капсула росте разом із кількістю розділів. */
@@ -65,19 +63,27 @@ export function AppNav() {
           const isActive = pathname === href;
 
           return (
-            <li key={href} className="relative flex-1">
+            /* min-w-0 обовʼязково: без нього довгий підпис розпирає свою
+               комірку, вкладки стають різної ширини — і повзунок-індикатор,
+               що рахує рівні частки, перестає збігатися з активною. */
+            <li key={href} className="relative min-w-0 flex-1">
               <Link
                 href={href}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex h-14 flex-col items-center justify-center gap-1 rounded-full text-[11px] font-medium transition-colors",
+                  // 10px, а не 11: із чотирма вкладками «Налаштування» при
+                  // більшому кеглі впирається в край капсули. Це ще й рівно
+                  // той розмір, яким підписані вкладки в самій iOS.
+                  "flex h-14 flex-col items-center justify-center gap-1 rounded-full text-[10px] font-medium transition-colors",
                   isActive
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="size-5" aria-hidden />
-                {label}
+                {/* На дуже вузьких екранах підпис краще обрізати, ніж ламати
+                    ним розкладку: до 375px усі чотири вміщаються повністю. */}
+                <span className="max-w-full truncate">{label}</span>
               </Link>
             </li>
           );
