@@ -3,12 +3,17 @@ import { Settings } from "lucide-react";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 import { NotificationSettings } from "@/features/notifications/components/notification-settings";
 import { getStatus } from "@/features/notifications/services/notifications.service";
+import { SheetsExportSettings } from "@/features/sheets-export/components/sheets-export-settings";
+import { getExportStatus } from "@/features/sheets-export/services/sheets-export.service";
 
-/** Кількість підписаних пристроїв читається з бази на кожен показ. */
+/** Кількість пристроїв і список невивантажених місяців — з бази на кожен показ. */
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const status = await getStatus();
+  const [notifications, sheets] = await Promise.all([
+    getStatus(),
+    getExportStatus(),
+  ]);
 
   return (
     <main className="flex flex-col gap-8 pt-8">
@@ -17,7 +22,9 @@ export default async function SettingsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Налаштування</h1>
       </header>
 
-      <NotificationSettings status={status} />
+      <NotificationSettings status={notifications} />
+
+      <SheetsExportSettings status={sheets} />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Доступ</h2>
