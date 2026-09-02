@@ -108,7 +108,7 @@ export function monthKeyOf(date: IsoDate): MonthKey {
   return monthKey(date.slice(0, 7));
 }
 
-/** Попередній місяць — саме його вивантажуємо в Sheets першого числа. */
+/** Попередній місяць. */
 export function previousMonthKey(key: MonthKey): MonthKey {
   const [year, month] = key.split("-").map(Number);
   return month === 1
@@ -145,9 +145,4 @@ export function monthRange(key: MonthKey): { start: IsoDate; end: IsoDate } {
 /** Чи це останній день свого місяця — сигнал надіслати нагадування про пробіг. */
 export function isLastDayOfMonth(date: IsoDate): boolean {
   return Number(date.slice(8, 10)) === daysInMonth(monthKeyOf(date));
-}
-
-/** Чи це перше число — сигнал вивантажити попередній місяць у Sheets. */
-export function isFirstDayOfMonth(date: IsoDate): boolean {
-  return date.slice(8, 10) === "01";
 }

@@ -4,10 +4,6 @@ import type { DeliveryReport } from "@/features/notifications/services/push-send
 import { sendOdometerReminder } from "@/features/notifications/services/notifications.service";
 import { getLatestReadingMonth } from "@/features/odometer/services/odometer-readings.service";
 import {
-  exportPeriod,
-  getExportStatus,
-} from "@/features/sheets-export/services/sheets-export.service";
-import {
   isLastDayOfMonth,
   monthKeyOf,
   todayInKyiv,
@@ -24,14 +20,9 @@ export type ReminderOutcome =
     }
   | { status: "failed"; month: MonthKey; error: string };
 
-export type ExportOutcome =
-  | { status: "exported" | "already-exported" | "no-data"; period: MonthKey }
-  | { status: "failed"; period: MonthKey; error: string };
-
 export interface DailyReport {
   date: IsoDate;
   reminder: ReminderOutcome;
-  exports: ExportOutcome[];
   /** `false`, якщо бодай щось не спрацювало — за цим і видно збій у логах. */
   ok: boolean;
 }
@@ -71,61 +62,23 @@ async function runReminder(today: IsoDate): Promise<ReminderOutcome> {
 }
 
 /**
- * Вивантаження закритих місяців.
+ * Щоденна задача.
  *
- * Свідомо не «першого числа вивантажуємо попередній місяць», а «щодня
- * вивантажуємо все, що вже закрито й ще не в таблиці». Різниця в тому, що
- * буде, якщо крон одного дня не спрацює: за датою місяць було б втрачено
- * назавжди, бо першого числа він більше не настане. За станом — наступний
- * запуск просто добере його.
+ * Крон ходить сюди щодня, бо безкоштовний план Versel не дозволяє частіше
+ * разу на добу — і «в останній день місяця» окремим розкладом там не задати.
+ * Тому день перевіряється тут, у коді, а не в `vercel.json`.
  *
- * Кожен місяць окремо: збій на одному не має ховати решту.
- */
-async function runExports(): Promise<ExportOutcome[]> {
-  const { configured, pending } = await getExportStatus();
-
-  if (!configured || pending.length === 0) return [];
-
-  const outcomes: ExportOutcome[] = [];
-
-  for (const period of pending) {
-    try {
-      const result = await exportPeriod(period);
-      outcomes.push({ status: result.status, period });
-    } catch (error) {
-      console.error(`Не вдалося вивантажити ${period}`, error);
-      outcomes.push({ status: "failed", period, error: messageOf(error) });
-    }
-  }
-
-  return outcomes;
-}
-
-/**
- * Щоденний диспетчер.
- *
- * Один крон замість двох місячних: безкоштовний план Versel дозволяє запуск
- * не частіше разу на добу, тож «першого числа» і «в останній день місяця»
- * окремими розкладами там не задати. Диспетчер щодня сам вирішує, що робити.
- *
- * Обидві дії безпечні при повторному виклику — а він буває, бо Versel не
- * обіцяє рівно одного запуску.
+ * Дія ідемпотентна — а повтори бувають, бо Versel не обіцяє рівно одного
+ * запуску: коли показання за місяць уже є, друге нагадування не піде.
  */
 export async function runDailyJobs(
   today: IsoDate = todayInKyiv(),
 ): Promise<DailyReport> {
-  // Послідовно, а не паралельно: якщо сьогодні й останній день місяця, і є що
-  // вивантажити, дві важкі операції одночасно на найменшому інстансі Neon
-  // упруться одна в одну без жодної потреби — крон нікуди не поспішає.
   const reminder = await runReminder(today);
-  const exports = await runExports();
 
   return {
     date: today,
     reminder,
-    exports,
-    ok:
-      reminder.status !== "failed" &&
-      exports.every((outcome) => outcome.status !== "failed"),
+    ok: reminder.status !== "failed",
   };
 }

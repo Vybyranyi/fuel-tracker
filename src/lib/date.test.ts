@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   currentMonthKey,
   daysInMonth,
-  isFirstDayOfMonth,
   isLastDayOfMonth,
   isoDate,
   monthKey,
@@ -107,10 +106,5 @@ describe("тригери крона", () => {
     // Високосний рік: 28 лютого вже не останній день.
     expect(isLastDayOfMonth(isoDate("2028-02-28"))).toBe(false);
     expect(isLastDayOfMonth(isoDate("2028-02-29"))).toBe(true);
-  });
-
-  it("впізнає перше число — сигнал вивантажити минулий місяць", () => {
-    expect(isFirstDayOfMonth(isoDate("2026-08-01"))).toBe(true);
-    expect(isFirstDayOfMonth(isoDate("2026-08-02"))).toBe(false);
   });
 });

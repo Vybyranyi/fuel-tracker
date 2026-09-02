@@ -1,11 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
-  char,
   check,
   date,
   index,
   integer,
-  jsonb,
   numeric,
   pgTable,
   text,
@@ -118,36 +116,6 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
 });
 
 /**
- * Журнал місячних вивантажень у Google Sheets.
- *
- * `period` унікальний — саме він робить крон ідемпотентним: повторний запуск
- * (а Versel не гарантує рівно один) не додасть у таблицю другий рядок за
- * той самий місяць.
- *
- * `rowSnapshot` зберігає те, що реально пішло в аркуш: якщо цифри розійдуться,
- * буде видно, чи це аркуш редагували руками, чи вивантаження дало інше.
- */
-export const monthlyExports = pgTable(
-  "monthly_exports",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    period: char("period", { length: 7 }).notNull().unique(),
-    exportedAt: timestamp("exported_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    rowSnapshot: jsonb("row_snapshot").notNull(),
-    ...timestamps,
-  },
-  (table) => [
-    // Формат '2026-08'. Без \d — у SQL-літералі це зайвий привід помилитись.
-    check(
-      "monthly_exports_period_format",
-      sql`${table.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`,
-    ),
-  ],
-);
-
-/**
  * Лічильник невдалих спроб входу.
  *
  * PIN — чотири цифри, тобто 10 000 комбінацій. Хешування тут не рятує:
@@ -175,8 +143,5 @@ export type NewOdometerReadingRow = typeof odometerReadings.$inferInsert;
 
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
-
-export type MonthlyExportRow = typeof monthlyExports.$inferSelect;
-export type NewMonthlyExportRow = typeof monthlyExports.$inferInsert;
 
 export type LoginAttemptRow = typeof loginAttempts.$inferSelect;
