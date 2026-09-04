@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { AuthError } from "@supabase/supabase-js";
-import { headers } from "next/headers";
 
 import { classifyAuthFailure } from "@/features/auth/domain/auth-failure";
 import type {
@@ -10,23 +9,6 @@ import type {
 } from "@/features/auth/schemas/sign-in.schema";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { UserFacingError } from "@/lib/safe-action";
-
-/** Куди Google повертає людину після згоди. */
-const OAUTH_CALLBACK_PATH = "/auth/callback";
-
-/**
- * Адреса застосунку так, як її бачить браузер.
- *
- * Не з константи й не зі змінної оточення: у превʼю-деплоях домен щоразу
- * інший, і зашитий redirect ламав би вхід саме там, де його зручно перевіряти.
- */
-async function currentOrigin(): Promise<string> {
-  const headerList = await headers();
-  const host = headerList.get("host");
-  const protocol = headerList.get("x-forwarded-proto") ?? "https";
-
-  return `${protocol}://${host}`;
-}
 
 /**
  * Перетворює помилку Supabase на текст для людини.
@@ -93,32 +75,6 @@ export async function verifyEmailCode({
       "Код не підійшов. Перевірте його або надішліть новий.",
     );
   }
-}
-
-/**
- * Починає вхід через Google і повертає адресу, куди вести браузер.
- *
- * Саме на сервері, а не в браузері: так перевірочний код PKCE лягає в куку,
- * яку потім читає `/auth/callback`. Якби вхід починався з клієнта, обмін коду
- * на сесію на сервері вже не склався б.
- */
-export async function startGoogleSignIn(next?: string): Promise<string> {
-  const supabase = await createSupabaseServerClient();
-  const origin = await currentOrigin();
-  const callback = new URL(OAUTH_CALLBACK_PATH, origin);
-
-  if (next) callback.searchParams.set("next", next);
-
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: callback.toString() },
-  });
-
-  if (error || !data.url) {
-    throw new UserFacingError("Не вдалося почати вхід через Google");
-  }
-
-  return data.url;
 }
 
 export async function signOut(): Promise<void> {

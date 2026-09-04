@@ -44,11 +44,7 @@ export default async function proxy(request: NextRequest) {
 
   const { response, userId } = await refreshSession(request);
 
-  // `/auth/*` — повернення від Google: там сесії ще немає, вона саме там і
-  // створюється. Завернути цей шлях на вхід означало б зациклити його.
-  const isAuthRoute = pathname === LOGIN_PATH || pathname.startsWith("/auth/");
-
-  if (!userId && !isAuthRoute) {
+  if (!userId && pathname !== LOGIN_PATH) {
     const loginUrl = new URL(LOGIN_PATH, request.url);
 
     // Куди повернутись після входу: перехід із пуш-сповіщення веде на

@@ -38,12 +38,6 @@ export const verifyEmailCodeAction = actionClient
     redirect(next ?? "/");
   });
 
-export const signInWithGoogleAction = actionClient
-  .inputSchema(z.object({ next: nextPathSchema }))
-  .action(async ({ parsedInput }) => {
-    redirect(await service.startGoogleSignIn(parsedInput.next));
-  });
-
 export const signOutAction = actionClient.action(async () => {
   await service.signOut();
   redirect("/login");
