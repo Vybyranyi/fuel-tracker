@@ -9,6 +9,12 @@ export interface Car {
   fuelType: FuelType;
 }
 
+/** Скільки записів висить на авто — і зникне разом із ним. */
+export interface CarContents {
+  fuelEntries: number;
+  odometerReadings: number;
+}
+
 /** Підписи для інтерфейсу. Ключі збігаються зі значеннями enum у базі. */
 export const FUEL_TYPE_LABELS: Record<FuelType, string> = {
   petrol: "Бензин",

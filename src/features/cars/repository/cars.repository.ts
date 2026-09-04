@@ -1,10 +1,10 @@
 import "server-only";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
 import { withUser } from "@/db";
-import { cars } from "@/db/schema";
-import type { Car, FuelType } from "@/features/cars/domain/car";
+import { cars, fuelEntries, odometerReadings } from "@/db/schema";
+import type { Car, CarContents, FuelType } from "@/features/cars/domain/car";
 
 const columns = {
   id: cars.id,
@@ -61,4 +61,55 @@ export async function insertCar(
   }
 
   return toCar(row);
+}
+
+export async function updateCar(
+  userId: string,
+  carId: string,
+  input: Omit<Car, "id">,
+): Promise<Car | null> {
+  const [row] = await withUser(userId, (tx) =>
+    tx
+      .update(cars)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(cars.id, carId))
+      .returning(columns),
+  );
+
+  return row ? toCar(row) : null;
+}
+
+export async function deleteCar(
+  userId: string,
+  carId: string,
+): Promise<boolean> {
+  const rows = await withUser(userId, (tx) =>
+    tx.delete(cars).where(eq(cars.id, carId)).returning({ id: cars.id }),
+  );
+
+  return rows.length > 0;
+}
+
+/**
+ * Скільки записів піде разом із авто.
+ *
+ * Потрібне рівно для тексту підтвердження. «Видалити авто?» без цих чисел —
+ * питання, на яке неможливо відповісти свідомо: за ним може стояти і нічого,
+ * і три роки історії.
+ */
+export async function countCarContents(
+  userId: string,
+  carId: string,
+): Promise<CarContents> {
+  const [row] = await withUser(userId, (tx) =>
+    tx
+      .select({
+        fuelEntries: sql<number>`(select count(*) from ${fuelEntries} where ${fuelEntries.carId} = ${carId})::int`,
+        odometerReadings: sql<number>`(select count(*) from ${odometerReadings} where ${odometerReadings.carId} = ${carId})::int`,
+      })
+      .from(cars)
+      .where(eq(cars.id, carId)),
+  );
+
+  return row ?? { fuelEntries: 0, odometerReadings: 0 };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Car as CarIcon } from "lucide-react";
+import { Check } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 
@@ -14,20 +14,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createCarAction } from "@/features/cars/actions/cars.actions";
+import {
+  createCarAction,
+  updateCarAction,
+} from "@/features/cars/actions/cars.actions";
 import {
   FUEL_TYPES,
   FUEL_TYPE_LABELS,
+  type Car,
   type FuelType,
 } from "@/features/cars/domain/car";
 
-export function CarForm() {
-  const [fuelType, setFuelType] = useState<FuelType>("petrol");
-  const { execute, isPending, result } = useAction(createCarAction);
+/**
+ * Форма авто — одна на створення й на редагування.
+ *
+ * Поля однакові, різниця лише в дії та підписі кнопки. Дві майже однакові
+ * форми розходяться при першій же зміні: у одній поле додали, у другій ні.
+ */
+export function CarForm({ car }: { car?: Car }) {
+  const [fuelType, setFuelType] = useState<FuelType>(car?.fuelType ?? "petrol");
+
+  const create = useAction(createCarAction);
+  const update = useAction(updateCarAction);
+  const active = car ? update : create;
 
   const fieldError = (name: string): string | undefined =>
-    (result.validationErrors as Record<string, { _errors?: string[] }>)?.[name]
-      ?._errors?.[0];
+    (
+      active.result.validationErrors as Record<string, { _errors?: string[] }>
+    )?.[name]?._errors?.[0];
 
   return (
     <form
@@ -36,13 +50,19 @@ export function CarForm() {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
 
-        execute({
+        const input = {
           name: String(data.get("name") ?? ""),
           makeModel: String(data.get("makeModel") ?? ""),
           plate: String(data.get("plate") ?? ""),
           year: String(data.get("year") ?? ""),
           fuelType,
-        });
+        };
+
+        if (car) {
+          update.execute({ ...input, id: car.id });
+        } else {
+          create.execute(input);
+        }
       }}
     >
       <Field label="Назва" name="name" error={fieldError("name")}>
@@ -50,8 +70,9 @@ export function CarForm() {
           id="name"
           name="name"
           required
-          autoFocus
+          autoFocus={!car}
           maxLength={40}
+          defaultValue={car?.name}
           placeholder="Октавія"
         />
       </Field>
@@ -61,6 +82,7 @@ export function CarForm() {
           id="makeModel"
           name="makeModel"
           maxLength={60}
+          defaultValue={car?.makeModel ?? ""}
           placeholder="Skoda Octavia"
         />
       </Field>
@@ -71,6 +93,7 @@ export function CarForm() {
           name="plate"
           maxLength={16}
           autoCapitalize="characters"
+          defaultValue={car?.plate ?? ""}
           placeholder="AA1234BB"
         />
       </Field>
@@ -81,6 +104,7 @@ export function CarForm() {
           name="year"
           inputMode="numeric"
           maxLength={4}
+          defaultValue={car?.year ?? ""}
           placeholder="2015"
         />
       </Field>
@@ -104,13 +128,13 @@ export function CarForm() {
         </Select>
       </div>
 
-      <Button type="submit" disabled={isPending} className="mt-2">
-        <CarIcon aria-hidden />
-        {isPending ? "Зберігаю…" : "Зберегти"}
+      <Button type="submit" disabled={active.isPending} className="mt-2">
+        <Check aria-hidden />
+        {active.isPending ? "Зберігаю…" : "Зберегти"}
       </Button>
 
       <p className="min-h-5 text-center text-sm text-destructive" role="alert">
-        {result.serverError}
+        {active.result.serverError}
       </p>
     </form>
   );

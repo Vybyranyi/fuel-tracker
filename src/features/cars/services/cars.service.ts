@@ -5,7 +5,7 @@ import { cache } from "react";
 
 import type { CarScope } from "@/db";
 import { requireUser } from "@/features/auth/services/session";
-import type { Car } from "@/features/cars/domain/car";
+import type { Car, CarContents } from "@/features/cars/domain/car";
 import * as repository from "@/features/cars/repository/cars.repository";
 import type { CreateCarInput } from "@/features/cars/schemas/car.schema";
 import { UserFacingError } from "@/lib/safe-action";
@@ -89,4 +89,69 @@ export async function setActiveCar(carId: string): Promise<void> {
     path: "/",
     maxAge: ACTIVE_CAR_MAX_AGE_SECONDS,
   });
+}
+
+/** Одне авто за id — для сторінки редагування. */
+export async function getCar(carId: string): Promise<Car | null> {
+  const user = await requireUser();
+  return repository.findCar(user.id, carId);
+}
+
+export async function getCarContents(carId: string): Promise<CarContents> {
+  const user = await requireUser();
+  return repository.countCarContents(user.id, carId);
+}
+
+export async function updateCar(
+  carId: string,
+  input: CreateCarInput,
+): Promise<Car> {
+  const user = await requireUser();
+
+  const car = await repository.updateCar(user.id, carId, {
+    name: input.name,
+    makeModel: input.makeModel,
+    plate: input.plate,
+    year: input.year,
+    fuelType: input.fuelType as Car["fuelType"],
+  });
+
+  if (!car) {
+    throw new UserFacingError("Це авто вже видалено");
+  }
+
+  return car;
+}
+
+/**
+ * Видаляє авто разом з усією його історією.
+ *
+ * Каскад описаний у схемі: заправки й показання пробігу зникають самі. Не
+ * лишаємо їх «осиротілими» навмисно — без авто вони не мають ні сенсу, ні
+ * способу колись знову стати видимими.
+ */
+export async function deleteCar(carId: string): Promise<void> {
+  const user = await requireUser();
+
+  if (!(await repository.deleteCar(user.id, carId))) {
+    throw new UserFacingError("Це авто вже видалено");
+  }
+}
+
+/**
+ * Перемикає активне авто.
+ *
+ * Перевіряємо, що воно наше, перш ніж класти в куку: кука сама по собі не є
+ * дозволом, але зберігати в ній чужий id означало б тримати сміття, яке
+ * `getActiveCar` мовчки ігноруватиме, — і людина не зрозуміє, чому вибір
+ * не запамʼятався.
+ */
+export async function switchCar(carId: string): Promise<void> {
+  const user = await requireUser();
+
+  if (!(await repository.findCar(user.id, carId))) {
+    throw new UserFacingError("Такого авто немає");
+  }
+
+  await setActiveCar(carId);
 }
