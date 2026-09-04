@@ -13,6 +13,9 @@ const COMMANDS_NEEDING_CONNECTION = ["migrate", "push", "pull", "studio", "up"];
  * `generate` будує SQL лише зі схеми — підключення йому не потрібне, і
  * вимагати DATABASE_URL для нього означало б не могти згенерувати міграцію
  * без доступу до прод-бази (наприклад, на CI).
+ *
+ * Береться DIRECT_URL, а не DATABASE_URL: drizzle-kit користується
+ * підготовленими запитами, яких у транзакційному пулері Supabase не існує.
  */
 function resolveDatabaseUrl(): string {
   const needsConnection = process.argv.some((arg) =>
@@ -21,11 +24,11 @@ function resolveDatabaseUrl(): string {
 
   const parsed = serverEnvSchema.safeParse(process.env);
 
-  if (parsed.success) return parsed.data.DATABASE_URL;
+  if (parsed.success) return parsed.data.DIRECT_URL ?? parsed.data.DATABASE_URL;
   if (!needsConnection) return "";
 
   throw new Error(
-    "Для цієї команди потрібен DATABASE_URL. Поклади його в .env.local — див. .env.example.",
+    "Для цієї команди потрібен DATABASE_URL (а краще DIRECT_URL). Поклади його в .env.local — див. .env.example.",
   );
 }
 

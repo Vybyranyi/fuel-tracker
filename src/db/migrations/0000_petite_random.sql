@@ -21,17 +21,6 @@ CREATE TABLE "login_attempts" (
 	CONSTRAINT "login_attempts_count_non_negative" CHECK ("login_attempts"."failed_count" >= 0)
 );
 --> statement-breakpoint
-CREATE TABLE "monthly_exports" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"period" char(7) NOT NULL,
-	"exported_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"row_snapshot" jsonb NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "monthly_exports_period_unique" UNIQUE("period"),
-	CONSTRAINT "monthly_exports_period_format" CHECK ("monthly_exports"."period" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
-);
---> statement-breakpoint
 CREATE TABLE "odometer_readings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"recorded_at" date NOT NULL,

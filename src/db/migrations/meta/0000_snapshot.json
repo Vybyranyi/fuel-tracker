@@ -1,5 +1,5 @@
 {
-  "id": "f0eecd0c-3fd3-4c1a-86fa-97a5242bdff5",
+  "id": "58ba3046-bd9f-4f3d-80b9-aec0e9ad7c66",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -144,72 +144,6 @@
         "login_attempts_count_non_negative": {
           "name": "login_attempts_count_non_negative",
           "value": "\"login_attempts\".\"failed_count\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.monthly_exports": {
-      "name": "monthly_exports",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "period": {
-          "name": "period",
-          "type": "char(7)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "exported_at": {
-          "name": "exported_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "row_snapshot": {
-          "name": "row_snapshot",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "monthly_exports_period_unique": {
-          "name": "monthly_exports_period_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "period"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "monthly_exports_period_format": {
-          "name": "monthly_exports_period_format",
-          "value": "\"monthly_exports\".\"period\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
         }
       },
       "isRLSEnabled": false

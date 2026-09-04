@@ -2,7 +2,7 @@ import { runDailyJobs } from "@/features/cron/services/daily-dispatcher";
 import { secretsMatch } from "@/lib/secret";
 
 /**
- * Node, а не Edge: диспетчер ходить у базу через драйвер Neon, шле пуші через
+ * Node, а не Edge: задача ходить у базу через драйвер Postgres, шле пуші через
  * `web-push` і підписує запити до Google — усе це потребує Node-рантайму.
  */
 export const runtime = "nodejs";

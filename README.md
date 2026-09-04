@@ -20,7 +20,7 @@
 ## Стек
 
 - **Next.js 16** (App Router, Turbopack) + TypeScript у strict
-- **Postgres на Neon**, **Drizzle ORM**, міграції у файлах
+- **Postgres на Supabase**, **Drizzle ORM**, міграції у файлах
 - **Tailwind CSS v4** + **shadcn/ui**, графіки на Recharts
 - **Server Actions** через `next-safe-action`, форми на react-hook-form + zod
 - **jose** для сесійної куки, **web-push** для сповіщень
@@ -46,7 +46,7 @@ domain ← repository ← service ← action ← UI
 src/
   app/                      маршрути, layout, крон-ендпоінт, іконки
   components/ui/            shadcn
-  db/                       схема, клієнт Neon, міграції
+  db/                       схема, клієнт Postgres, міграції
   features/
     auth/                   PIN, сесія, обмеження спроб
     fuel/                   заправки
@@ -85,15 +85,16 @@ vercel env pull .env.local
 
 Повний список із поясненнями — у [`.env.example`](.env.example). Коротко:
 
-| Змінна                         | Навіщо                                | Звідки взяти                                |
-| ------------------------------ | ------------------------------------- | ------------------------------------------- |
-| `DATABASE_URL`                 | Postgres                              | Vercel → Storage → база → Connection string |
-| `AUTH_PIN`                     | Чотири цифри для входу                | вигадати                                    |
-| `AUTH_SESSION_SECRET`          | Підпис сесійної куки, від 32 символів | `openssl rand -base64 32`                   |
-| `CRON_SECRET`                  | Захист крон-ендпоінта                 | `openssl rand -base64 32`                   |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Публічний ключ пушів                  | `npx web-push generate-vapid-keys`          |
-| `VAPID_PRIVATE_KEY`            | Приватний ключ звідти ж               | те саме                                     |
-| `VAPID_SUBJECT`                | Контакт для push-сервісу              | `mailto:` або `https://`                    |
+| Змінна                         | Навіщо                                | Звідки взяти                             |
+| ------------------------------ | ------------------------------------- | ---------------------------------------- |
+| `DATABASE_URL`                 | Postgres для застосунку               | Supabase → Database → transaction pooler |
+| `DIRECT_URL`                   | Postgres для міграцій                 | там само, session pooler                 |
+| `AUTH_PIN`                     | Чотири цифри для входу                | вигадати                                 |
+| `AUTH_SESSION_SECRET`          | Підпис сесійної куки, від 32 символів | `openssl rand -base64 32`                |
+| `CRON_SECRET`                  | Захист крон-ендпоінта                 | `openssl rand -base64 32`                |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Публічний ключ пушів                  | `npx web-push generate-vapid-keys`       |
+| `VAPID_PRIVATE_KEY`            | Приватний ключ звідти ж               | те саме                                  |
+| `VAPID_SUBJECT`                | Контакт для push-сервісу              | `mailto:` або `https://`                 |
 
 Публічний ключ VAPID навмисно лежить лише в `NEXT_PUBLIC_`-змінній. Він
 потрібен і браузеру, і серверу, а публічний за визначенням — друга, серверна
@@ -102,12 +103,13 @@ vercel env pull .env.local
 
 ## Розгортання
 
-1. Створити проєкт на Vercel з цього репозиторію.
-2. Vercel → Storage → створити базу Neon. `DATABASE_URL` вона підставить сама.
-3. Додати решту змінних у Project Settings → Environment Variables.
-4. Задеплоїти, потім накотити міграції: `vercel env pull .env.local` і
-   `npm run db:migrate`.
-5. Відкрити застосунок, увійти за PIN.
+1. Створити проєкт на [supabase.com](https://supabase.com) і проєкт на Vercel
+   з цього репозиторію.
+2. Регіон функцій Vercel поставити поруч із базою (для `eu-west-1` це `dub1`).
+   Типовий регіон Vercel — США, і кожен запит ходив би через океан.
+3. Додати змінні у Vercel → Project Settings → Environment Variables.
+4. Накотити міграції: `vercel env pull .env.local` і `npm run db:migrate`.
+5. Задеплоїти, відкрити застосунок, увійти за PIN.
 
 Крон із `vercel.json` підхоплюється сам — окремо його вмикати не треба.
 
