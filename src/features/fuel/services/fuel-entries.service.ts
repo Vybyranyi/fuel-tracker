@@ -1,5 +1,6 @@
 import "server-only";
 
+import { requireCarScope } from "@/features/cars/services/cars.service";
 import type { FuelEntry } from "@/features/fuel/domain/fuel-entry";
 import * as repository from "@/features/fuel/repository/fuel-entries.repository";
 import type {
@@ -27,7 +28,8 @@ export interface FuelEntryFormDefaults {
  * тому поле ціни не блимає порожнім і не потребує запиту з браузера.
  */
 export async function getFormDefaults(): Promise<FuelEntryFormDefaults> {
-  const pricePerLiter = await repository.findLatestPricePerLiter();
+  const scope = await requireCarScope();
+  const pricePerLiter = await repository.findLatestPricePerLiter(scope);
 
   return {
     filledAt: todayInKyiv(),
@@ -35,16 +37,16 @@ export async function getFormDefaults(): Promise<FuelEntryFormDefaults> {
   };
 }
 
-export function getRecentEntries(
+export async function getRecentEntries(
   limit: number = RECENT_ENTRIES_LIMIT,
 ): Promise<FuelEntry[]> {
-  return repository.listRecentEntries(limit);
+  return repository.listRecentEntries(await requireCarScope(), limit);
 }
 
-export function createFuelEntry(
+export async function createFuelEntry(
   input: CreateFuelEntryInput,
 ): Promise<FuelEntry> {
-  return repository.insertEntry(input);
+  return repository.insertEntry(await requireCarScope(), input);
 }
 
 /**
@@ -58,7 +60,11 @@ export async function updateFuelEntry({
   id,
   ...amounts
 }: UpdateFuelEntryInput): Promise<FuelEntry> {
-  const updated = await repository.updateEntry(id, amounts);
+  const updated = await repository.updateEntry(
+    await requireCarScope(),
+    id,
+    amounts,
+  );
 
   if (!updated) {
     throw new UserFacingError("Цю заправку вже видалено");
@@ -68,7 +74,7 @@ export async function updateFuelEntry({
 }
 
 export async function deleteFuelEntry(id: string): Promise<void> {
-  const deleted = await repository.deleteEntry(id);
+  const deleted = await repository.deleteEntry(await requireCarScope(), id);
 
   if (!deleted) {
     throw new UserFacingError("Цю заправку вже видалено");

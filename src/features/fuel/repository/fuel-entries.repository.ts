@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 
-import { getDb } from "@/db";
+import { withCarScope, type CarScope } from "@/db";
 import { fuelEntries } from "@/db/schema";
 import {
   fuelEntryFromRow,
@@ -27,40 +27,64 @@ function toRow(input: FuelEntryAmountsInput) {
   };
 }
 
-/** Останні заправки — для списку на головній. */
-export async function listRecentEntries(limit: number): Promise<FuelEntry[]> {
-  const rows = await getDb()
-    .select()
-    .from(fuelEntries)
-    .orderBy(desc(fuelEntries.filledAt), desc(fuelEntries.createdAt))
-    .limit(limit);
+/**
+ * Останні заправки — для списку на головній.
+ *
+ * `carId` в умові стоїть навіть попри RLS: політика в базі — це страховка на
+ * випадок помилки, а не спосіб фільтрувати. Без явної умови запит просив би
+ * усі свої авто одразу, і база чесно б їх віддала.
+ */
+export async function listRecentEntries(
+  scope: CarScope,
+  limit: number,
+): Promise<FuelEntry[]> {
+  const rows = await withCarScope(scope, (tx) =>
+    tx
+      .select()
+      .from(fuelEntries)
+      .where(eq(fuelEntries.carId, scope.carId))
+      .orderBy(desc(fuelEntries.filledAt), desc(fuelEntries.createdAt))
+      .limit(limit),
+  );
 
   return rows.map(fuelEntryFromRow);
 }
 
 /** Заправки за місяць — для статистики й місячного вивантаження. */
 export async function listEntriesForMonth(
+  scope: CarScope,
   month: MonthKey,
 ): Promise<FuelEntry[]> {
   const { start, end } = monthRange(month);
 
-  const rows = await getDb()
-    .select()
-    .from(fuelEntries)
-    .where(
-      and(gte(fuelEntries.filledAt, start), lte(fuelEntries.filledAt, end)),
-    )
-    .orderBy(fuelEntries.filledAt);
+  const rows = await withCarScope(scope, (tx) =>
+    tx
+      .select()
+      .from(fuelEntries)
+      .where(
+        and(
+          eq(fuelEntries.carId, scope.carId),
+          gte(fuelEntries.filledAt, start),
+          lte(fuelEntries.filledAt, end),
+        ),
+      )
+      .orderBy(fuelEntries.filledAt),
+  );
 
   return rows.map(fuelEntryFromRow);
 }
 
-export async function findEntryById(id: string): Promise<FuelEntry | null> {
-  const [row] = await getDb()
-    .select()
-    .from(fuelEntries)
-    .where(eq(fuelEntries.id, id))
-    .limit(1);
+export async function findEntryById(
+  scope: CarScope,
+  id: string,
+): Promise<FuelEntry | null> {
+  const [row] = await withCarScope(scope, (tx) =>
+    tx
+      .select()
+      .from(fuelEntries)
+      .where(and(eq(fuelEntries.id, id), eq(fuelEntries.carId, scope.carId)))
+      .limit(1),
+  );
 
   return row ? fuelEntryFromRow(row) : null;
 }
@@ -71,23 +95,31 @@ export async function findEntryById(id: string): Promise<FuelEntry | null> {
  * Береться з БД, а не з localStorage: ціна має підставлятись і на телефоні,
  * і на ноуті, і після чистки браузера. Тягнемо одну колонку, а не весь рядок.
  */
-export async function findLatestPricePerLiter(): Promise<Decimal2 | null> {
-  const [row] = await getDb()
-    .select({ pricePerLiter: fuelEntries.pricePerLiter })
-    .from(fuelEntries)
-    .orderBy(desc(fuelEntries.filledAt), desc(fuelEntries.createdAt))
-    .limit(1);
+export async function findLatestPricePerLiter(
+  scope: CarScope,
+): Promise<Decimal2 | null> {
+  const [row] = await withCarScope(scope, (tx) =>
+    tx
+      .select({ pricePerLiter: fuelEntries.pricePerLiter })
+      .from(fuelEntries)
+      .where(eq(fuelEntries.carId, scope.carId))
+      .orderBy(desc(fuelEntries.filledAt), desc(fuelEntries.createdAt))
+      .limit(1),
+  );
 
   return row ? decimal2FromDbString(row.pricePerLiter) : null;
 }
 
 export async function insertEntry(
+  scope: CarScope,
   input: FuelEntryAmountsInput,
 ): Promise<FuelEntry> {
-  const [row] = await getDb()
-    .insert(fuelEntries)
-    .values(toRow(input))
-    .returning();
+  const [row] = await withCarScope(scope, (tx) =>
+    tx
+      .insert(fuelEntries)
+      .values({ ...toRow(input), carId: scope.carId })
+      .returning(),
+  );
 
   if (!row) {
     throw new Error("INSERT не повернув рядок");
@@ -98,24 +130,32 @@ export async function insertEntry(
 
 /** Повертає `null`, якщо запису з таким id не існує. */
 export async function updateEntry(
+  scope: CarScope,
   id: string,
   input: FuelEntryAmountsInput,
 ): Promise<FuelEntry | null> {
-  const [row] = await getDb()
-    .update(fuelEntries)
-    .set(toRow(input))
-    .where(eq(fuelEntries.id, id))
-    .returning();
+  const [row] = await withCarScope(scope, (tx) =>
+    tx
+      .update(fuelEntries)
+      .set(toRow(input))
+      .where(and(eq(fuelEntries.id, id), eq(fuelEntries.carId, scope.carId)))
+      .returning(),
+  );
 
   return row ? fuelEntryFromRow(row) : null;
 }
 
 /** Повертає `false`, якщо видаляти було нічого. */
-export async function deleteEntry(id: string): Promise<boolean> {
-  const rows = await getDb()
-    .delete(fuelEntries)
-    .where(eq(fuelEntries.id, id))
-    .returning({ id: fuelEntries.id });
+export async function deleteEntry(
+  scope: CarScope,
+  id: string,
+): Promise<boolean> {
+  const rows = await withCarScope(scope, (tx) =>
+    tx
+      .delete(fuelEntries)
+      .where(and(eq(fuelEntries.id, id), eq(fuelEntries.carId, scope.carId)))
+      .returning({ id: fuelEntries.id }),
+  );
 
   return rows.length > 0;
 }

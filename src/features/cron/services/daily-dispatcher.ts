@@ -1,8 +1,8 @@
 import "server-only";
 
+import * as repository from "@/features/cron/repository/reminders.repository";
 import type { DeliveryReport } from "@/features/notifications/services/push-sender";
 import { sendOdometerReminder } from "@/features/notifications/services/notifications.service";
-import { getLatestReadingMonth } from "@/features/odometer/services/odometer-readings.service";
 import {
   isLastDayOfMonth,
   monthKeyOf,
@@ -12,17 +12,14 @@ import {
 } from "@/lib/date";
 
 export type ReminderOutcome =
-  | { status: "sent"; month: MonthKey; delivery: DeliveryReport }
-  | {
-      status: "skipped";
-      reason: "not-last-day" | "already-recorded";
-      month: MonthKey;
-    }
-  | { status: "failed"; month: MonthKey; error: string };
+  | { status: "sent"; userId: string; delivery: DeliveryReport }
+  | { status: "failed"; userId: string; error: string };
 
 export interface DailyReport {
   date: IsoDate;
-  reminder: ReminderOutcome;
+  month: MonthKey;
+  /** `null`, якщо сьогодні не останній день місяця й нагадувати рано. */
+  reminders: ReminderOutcome[] | null;
   /** `false`, якщо бодай щось не спрацювало — за цим і видно збій у логах. */
   ok: boolean;
 }
@@ -34,31 +31,30 @@ function messageOf(error: unknown): string {
 /**
  * Нагадування про пробіг.
  *
- * Шлемо в останній день місяця — але тільки якщо показання за цей місяць ще
- * немає. Нагадування про вже зроблене нічого не додає, а привчає змахувати
+ * Шлемо в останній день місяця й лише тим, у кого є авто без показань за цей
+ * місяць. Нагадування про вже зроблене нічого не додає, а привчає змахувати
  * сповіщення не читаючи.
+ *
+ * Кожен користувач окремо: збій розсилки одному не має ховати решту.
  */
-async function runReminder(today: IsoDate): Promise<ReminderOutcome> {
-  const month = monthKeyOf(today);
+async function runReminders(month: MonthKey): Promise<ReminderOutcome[]> {
+  const pending = await repository.listPendingReminders(month);
+  const outcomes: ReminderOutcome[] = [];
 
-  if (!isLastDayOfMonth(today)) {
-    return { status: "skipped", reason: "not-last-day", month };
-  }
-
-  try {
-    if ((await getLatestReadingMonth()) === month) {
-      return { status: "skipped", reason: "already-recorded", month };
+  for (const { userId, carNames } of pending) {
+    try {
+      outcomes.push({
+        status: "sent",
+        userId,
+        delivery: await sendOdometerReminder(userId, month, carNames),
+      });
+    } catch (error) {
+      console.error(`Не вдалося нагадати ${userId} про ${month}`, error);
+      outcomes.push({ status: "failed", userId, error: messageOf(error) });
     }
-
-    return {
-      status: "sent",
-      month,
-      delivery: await sendOdometerReminder(month),
-    };
-  } catch (error) {
-    console.error(`Не вдалося надіслати нагадування за ${month}`, error);
-    return { status: "failed", month, error: messageOf(error) };
   }
+
+  return outcomes;
 }
 
 /**
@@ -69,16 +65,23 @@ async function runReminder(today: IsoDate): Promise<ReminderOutcome> {
  * Тому день перевіряється тут, у коді, а не в `vercel.json`.
  *
  * Дія ідемпотентна — а повтори бувають, бо Versel не обіцяє рівно одного
- * запуску: коли показання за місяць уже є, друге нагадування не піде.
+ * запуску: щойно показання за місяць внесли, авто зникає зі списку.
  */
 export async function runDailyJobs(
   today: IsoDate = todayInKyiv(),
 ): Promise<DailyReport> {
-  const reminder = await runReminder(today);
+  const month = monthKeyOf(today);
+
+  if (!isLastDayOfMonth(today)) {
+    return { date: today, month, reminders: null, ok: true };
+  }
+
+  const reminders = await runReminders(month);
 
   return {
     date: today,
-    reminder,
-    ok: reminder.status !== "failed",
+    month,
+    reminders,
+    ok: reminders.every((outcome) => outcome.status !== "failed"),
   };
 }

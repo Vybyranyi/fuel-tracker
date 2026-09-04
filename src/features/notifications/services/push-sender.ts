@@ -26,10 +26,18 @@ export interface DeliveryReport {
  */
 const GONE_STATUS_CODES = new Set([404, 410]);
 
-export async function sendToAll(
+/**
+ * Розсилає на всі пристрої одного користувача.
+ *
+ * Саме одного: підписки лежать під RLS, і «всім одразу» вже не існує як
+ * запиту. Крон, якому треба обійти багатьох, викликає це в циклі — і кожен
+ * виклик ходить у базу від імені того, кому шле.
+ */
+export async function sendToUser(
+  userId: string,
   payload: NotificationPayload,
 ): Promise<DeliveryReport> {
-  const subscriptions = await repository.listSubscriptions();
+  const subscriptions = await repository.listSubscriptions(userId);
 
   if (subscriptions.length === 0) {
     return { sent: 0, removed: 0, failed: 0 };
@@ -50,18 +58,18 @@ export async function sendToAll(
           },
           body,
         );
-        await repository.markDelivered(subscription.endpoint);
+        await repository.markDelivered(userId, subscription.endpoint);
         return "sent" as const;
       } catch (error) {
         if (
           error instanceof WebPushError &&
           GONE_STATUS_CODES.has(error.statusCode)
         ) {
-          await repository.deleteSubscription(subscription.endpoint);
+          await repository.deleteSubscription(userId, subscription.endpoint);
           return "removed" as const;
         }
 
-        await repository.markFailed(subscription.endpoint);
+        await repository.markFailed(userId, subscription.endpoint);
         // У логи — з адресою, бо підписок може бути кілька, і без неї не
         // видно, який саме пристрій відвалився.
         console.error(

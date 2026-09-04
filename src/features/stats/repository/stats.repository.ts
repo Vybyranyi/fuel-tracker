@@ -1,8 +1,8 @@
 import "server-only";
 
-import { asc, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
-import { getDb } from "@/db";
+import { withCarScope, type CarScope } from "@/db";
 import { fuelEntries, odometerReadings } from "@/db/schema";
 import type {
   MonthlyAggregateRow,
@@ -16,21 +16,24 @@ import type { IsoDate } from "@/lib/date";
  * Тягнути всі заправки, щоб додати їх у памʼяті, означало б з роками возити
  * через мережу дедалі більший масив заради півдюжини чисел.
  */
-export async function aggregateFuelByMonth(): Promise<MonthlyAggregateRow[]> {
+export async function aggregateFuelByMonth(
+  scope: CarScope,
+): Promise<MonthlyAggregateRow[]> {
   const period = sql<string>`to_char(${fuelEntries.filledAt}, 'YYYY-MM')`;
 
-  const rows = await getDb()
-    .select({
-      period,
-      liters: sql<string>`sum(${fuelEntries.volumeLiters})`,
-      totalCost: sql<string>`sum(${fuelEntries.totalCost})`,
-      fillCount: sql<number>`count(*)::int`,
-    })
-    .from(fuelEntries)
-    .groupBy(period)
-    .orderBy(asc(period));
-
-  return rows;
+  return withCarScope(scope, (tx) =>
+    tx
+      .select({
+        period,
+        liters: sql<string>`sum(${fuelEntries.volumeLiters})`,
+        totalCost: sql<string>`sum(${fuelEntries.totalCost})`,
+        fillCount: sql<number>`count(*)::int`,
+      })
+      .from(fuelEntries)
+      .where(eq(fuelEntries.carId, scope.carId))
+      .groupBy(period)
+      .orderBy(asc(period)),
+  );
 }
 
 /**
@@ -40,14 +43,19 @@ export async function aggregateFuelByMonth(): Promise<MonthlyAggregateRow[]> {
  * записами, і рахувати її віконною функцією було б важче для читання, ніж
  * чистою функцією в домені, яку видно з тестів.
  */
-export async function listOdometerPoints(): Promise<OdometerPoint[]> {
-  const rows = await getDb()
-    .select({
-      recordedAt: odometerReadings.recordedAt,
-      odometerKm: odometerReadings.odometerKm,
-    })
-    .from(odometerReadings)
-    .orderBy(asc(odometerReadings.recordedAt));
+export async function listOdometerPoints(
+  scope: CarScope,
+): Promise<OdometerPoint[]> {
+  const rows = await withCarScope(scope, (tx) =>
+    tx
+      .select({
+        recordedAt: odometerReadings.recordedAt,
+        odometerKm: odometerReadings.odometerKm,
+      })
+      .from(odometerReadings)
+      .where(eq(odometerReadings.carId, scope.carId))
+      .orderBy(asc(odometerReadings.recordedAt)),
+  );
 
   return rows.map((row) => ({
     recordedAt: row.recordedAt as IsoDate,

@@ -11,10 +11,13 @@ const sendNotification = vi.fn();
 vi.mock(
   "@/features/notifications/repository/push-subscriptions.repository",
   () => ({
-    listSubscriptions: () => listSubscriptions(),
-    deleteSubscription: (endpoint: string) => deleteSubscription(endpoint),
-    markDelivered: (endpoint: string) => markDelivered(endpoint),
-    markFailed: (endpoint: string) => markFailed(endpoint),
+    listSubscriptions: (userId: string) => listSubscriptions(userId),
+    deleteSubscription: (userId: string, endpoint: string) =>
+      deleteSubscription(userId, endpoint),
+    markDelivered: (userId: string, endpoint: string) =>
+      markDelivered(userId, endpoint),
+    markFailed: (userId: string, endpoint: string) =>
+      markFailed(userId, endpoint),
   }),
 );
 
@@ -52,8 +55,10 @@ vi.mock("web-push", () => {
 });
 
 const { WebPushError } = await import("web-push");
-const { sendToAll } =
+const { sendToUser } =
   await import("@/features/notifications/services/push-sender");
+
+const USER_ID = "11111111-1111-4111-8111-111111111111";
 
 const payload: NotificationPayload = {
   title: "Пробіг за серпень 2026",
@@ -81,11 +86,11 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
-describe("sendToAll", () => {
+describe("sendToUser", () => {
   it("без підписок не чіпає push-сервіс", async () => {
     listSubscriptions.mockResolvedValue([]);
 
-    expect(await sendToAll(payload)).toEqual({
+    expect(await sendToUser(USER_ID, payload)).toEqual({
       sent: 0,
       removed: 0,
       failed: 0,
@@ -100,13 +105,13 @@ describe("sendToAll", () => {
     ]);
     sendNotification.mockResolvedValue(undefined);
 
-    expect(await sendToAll(payload)).toEqual({
+    expect(await sendToUser(USER_ID, payload)).toEqual({
       sent: 2,
       removed: 0,
       failed: 0,
     });
-    expect(markDelivered).toHaveBeenCalledWith("https://push/1");
-    expect(markDelivered).toHaveBeenCalledWith("https://push/2");
+    expect(markDelivered).toHaveBeenCalledWith(USER_ID, "https://push/1");
+    expect(markDelivered).toHaveBeenCalledWith(USER_ID, "https://push/2");
     expect(deleteSubscription).not.toHaveBeenCalled();
   });
 
@@ -114,7 +119,7 @@ describe("sendToAll", () => {
     listSubscriptions.mockResolvedValue([subscription("https://push/1")]);
     sendNotification.mockResolvedValue(undefined);
 
-    await sendToAll(payload);
+    await sendToUser(USER_ID, payload);
 
     expect(sendNotification).toHaveBeenCalledWith(
       {
@@ -131,12 +136,15 @@ describe("sendToAll", () => {
       listSubscriptions.mockResolvedValue([subscription("https://push/dead")]);
       sendNotification.mockRejectedValue(gone("https://push/dead", statusCode));
 
-      expect(await sendToAll(payload)).toEqual({
+      expect(await sendToUser(USER_ID, payload)).toEqual({
         sent: 0,
         removed: 1,
         failed: 0,
       });
-      expect(deleteSubscription).toHaveBeenCalledWith("https://push/dead");
+      expect(deleteSubscription).toHaveBeenCalledWith(
+        USER_ID,
+        "https://push/dead",
+      );
       expect(markFailed).not.toHaveBeenCalled();
     },
   );
@@ -147,12 +155,12 @@ describe("sendToAll", () => {
       pushError("https://push/flaky", 429, "rate limited"),
     );
 
-    expect(await sendToAll(payload)).toEqual({
+    expect(await sendToUser(USER_ID, payload)).toEqual({
       sent: 0,
       removed: 0,
       failed: 1,
     });
-    expect(markFailed).toHaveBeenCalledWith("https://push/flaky");
+    expect(markFailed).toHaveBeenCalledWith(USER_ID, "https://push/flaky");
     expect(deleteSubscription).not.toHaveBeenCalled();
   });
 
@@ -161,12 +169,12 @@ describe("sendToAll", () => {
     // Не WebPushError узагалі — статусу немає, отже й підстав викидати немає.
     sendNotification.mockRejectedValue(new Error("socket hang up"));
 
-    expect(await sendToAll(payload)).toEqual({
+    expect(await sendToUser(USER_ID, payload)).toEqual({
       sent: 0,
       removed: 0,
       failed: 1,
     });
-    expect(markFailed).toHaveBeenCalledWith("https://push/flaky");
+    expect(markFailed).toHaveBeenCalledWith(USER_ID, "https://push/flaky");
     expect(deleteSubscription).not.toHaveBeenCalled();
   });
 
@@ -186,14 +194,17 @@ describe("sendToAll", () => {
       return Promise.resolve(undefined);
     });
 
-    expect(await sendToAll(payload)).toEqual({
+    expect(await sendToUser(USER_ID, payload)).toEqual({
       sent: 1,
       removed: 1,
       failed: 1,
     });
-    expect(markDelivered).toHaveBeenCalledWith("https://push/alive");
-    expect(deleteSubscription).toHaveBeenCalledWith("https://push/dead");
-    expect(markFailed).toHaveBeenCalledWith("https://push/flaky");
+    expect(markDelivered).toHaveBeenCalledWith(USER_ID, "https://push/alive");
+    expect(deleteSubscription).toHaveBeenCalledWith(
+      USER_ID,
+      "https://push/dead",
+    );
+    expect(markFailed).toHaveBeenCalledWith(USER_ID, "https://push/flaky");
   });
 
   it("збій бази при відмітці не видається за успіх", async () => {
@@ -201,7 +212,7 @@ describe("sendToAll", () => {
     sendNotification.mockResolvedValue(undefined);
     markDelivered.mockRejectedValue(new Error("база недоступна"));
 
-    expect(await sendToAll(payload)).toEqual({
+    expect(await sendToUser(USER_ID, payload)).toEqual({
       sent: 0,
       removed: 0,
       failed: 1,

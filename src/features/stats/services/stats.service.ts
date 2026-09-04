@@ -1,5 +1,6 @@
 import "server-only";
 
+import { requireCarScope } from "@/features/cars/services/cars.service";
 import {
   buildMonthlyStats,
   totalsOf,
@@ -18,9 +19,11 @@ export interface StatsOverview {
 }
 
 export async function getStatsOverview(): Promise<StatsOverview> {
+  const scope = await requireCarScope();
+
   const [rows, points] = await Promise.all([
-    repository.aggregateFuelByMonth(),
-    repository.listOdometerPoints(),
+    repository.aggregateFuelByMonth(scope),
+    repository.listOdometerPoints(scope),
   ]);
 
   const months = buildMonthlyStats(rows, points);

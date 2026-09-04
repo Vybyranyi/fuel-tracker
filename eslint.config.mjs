@@ -115,6 +115,28 @@ const eslintConfig = defineConfig([
 
   ...layerBoundaries,
 
+  // Обхід RLS — рівно для однієї потреби: щоденна задача не має користувача,
+  // від імені якого можна читати, а обійти має всіх. Будь-де ще це означало б
+  // тихо зняти захист, який ставили в базі.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/features/cron/**", "src/db/**"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/db/admin"],
+              message:
+                "Це підключення не бачить RLS. Запити від імені людини йдуть через withUser/withCarScope із @/db.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // UI звертається до даних тільки через server actions — не в репозиторій
   // і не в базу навпростець, інакше запит поїде в клієнтський бандл.
   {

@@ -1,8 +1,8 @@
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "@/db";
+import { withUser } from "@/db";
 import { pushSubscriptions } from "@/db/schema";
 import type { SavePushSubscriptionInput } from "@/features/notifications/schemas/push-subscription.schema";
 
@@ -20,58 +20,92 @@ export interface StoredSubscription {
  * Лічильник помилок при цьому скидається: підписка щойно підтверджена живою.
  */
 export async function saveSubscription(
+  userId: string,
   input: SavePushSubscriptionInput,
 ): Promise<void> {
-  await getDb()
-    .insert(pushSubscriptions)
-    .values({
-      endpoint: input.endpoint,
-      p256dh: input.keys.p256dh,
-      auth: input.keys.auth,
-      userAgent: input.userAgent ?? null,
-    })
-    .onConflictDoUpdate({
-      target: pushSubscriptions.endpoint,
-      set: {
+  await withUser(userId, (tx) =>
+    tx
+      .insert(pushSubscriptions)
+      .values({
+        userId,
+        endpoint: input.endpoint,
         p256dh: input.keys.p256dh,
         auth: input.keys.auth,
         userAgent: input.userAgent ?? null,
-        failureCount: 0,
-        updatedAt: new Date(),
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: pushSubscriptions.endpoint,
+        set: {
+          userId,
+          p256dh: input.keys.p256dh,
+          auth: input.keys.auth,
+          userAgent: input.userAgent ?? null,
+          failureCount: 0,
+          updatedAt: new Date(),
+        },
+      }),
+  );
 }
 
-export async function deleteSubscription(endpoint: string): Promise<void> {
-  await getDb()
-    .delete(pushSubscriptions)
-    .where(eq(pushSubscriptions.endpoint, endpoint));
+export async function deleteSubscription(
+  userId: string,
+  endpoint: string,
+): Promise<void> {
+  await withUser(userId, (tx) =>
+    tx
+      .delete(pushSubscriptions)
+      .where(
+        and(
+          eq(pushSubscriptions.endpoint, endpoint),
+          eq(pushSubscriptions.userId, userId),
+        ),
+      ),
+  );
 }
 
-export async function listSubscriptions(): Promise<StoredSubscription[]> {
-  return getDb()
-    .select({
-      endpoint: pushSubscriptions.endpoint,
-      p256dh: pushSubscriptions.p256dh,
-      auth: pushSubscriptions.auth,
-    })
-    .from(pushSubscriptions);
+/**
+ * Підписки одного користувача.
+ *
+ * Кличеться і зі сторінки налаштувань, і з крону: крон знає, кому шле, тож
+ * ходить сюди тим самим шляхом, а не в обхід RLS.
+ */
+export async function listSubscriptions(
+  userId: string,
+): Promise<StoredSubscription[]> {
+  return withUser(userId, (tx) =>
+    tx
+      .select({
+        endpoint: pushSubscriptions.endpoint,
+        p256dh: pushSubscriptions.p256dh,
+        auth: pushSubscriptions.auth,
+      })
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userId, userId)),
+  );
 }
 
-export async function countSubscriptions(): Promise<number> {
-  const [row] = await getDb()
-    .select({ count: sql<number>`count(*)::int` })
-    .from(pushSubscriptions);
+export async function countSubscriptions(userId: string): Promise<number> {
+  const [row] = await withUser(userId, (tx) =>
+    tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userId, userId)),
+  );
 
   return row?.count ?? 0;
 }
 
 /** Успішна доставка: підписка жива, попередні збої більше не рахуються. */
-export async function markDelivered(endpoint: string): Promise<void> {
-  await getDb()
-    .update(pushSubscriptions)
-    .set({ failureCount: 0, lastSuccessAt: new Date() })
-    .where(eq(pushSubscriptions.endpoint, endpoint));
+export async function markDelivered(
+  userId: string,
+  endpoint: string,
+): Promise<void> {
+  await withUser(userId, (tx) =>
+    tx
+      .update(pushSubscriptions)
+      .set({ failureCount: 0, lastSuccessAt: new Date() })
+      .where(eq(pushSubscriptions.endpoint, endpoint)),
+  );
 }
 
 /**
@@ -80,9 +114,14 @@ export async function markDelivered(endpoint: string): Promise<void> {
  * Push-сервіс буває недоступним хвилинами, і видаляти підписку через одну
  * помилку означало б мовчки відписати пристрій від нагадувань.
  */
-export async function markFailed(endpoint: string): Promise<void> {
-  await getDb()
-    .update(pushSubscriptions)
-    .set({ failureCount: sql`${pushSubscriptions.failureCount} + 1` })
-    .where(eq(pushSubscriptions.endpoint, endpoint));
+export async function markFailed(
+  userId: string,
+  endpoint: string,
+): Promise<void> {
+  await withUser(userId, (tx) =>
+    tx
+      .update(pushSubscriptions)
+      .set({ failureCount: sql`${pushSubscriptions.failureCount} + 1` })
+      .where(eq(pushSubscriptions.endpoint, endpoint)),
+  );
 }

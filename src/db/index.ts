@@ -1,51 +1,58 @@
 import "server-only";
 
-import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { sql } from "drizzle-orm";
 
-import { getServerEnv } from "@/lib/env";
-
+import { getClient, type Database } from "./client";
 import * as schema from "./schema";
 
-/**
- * Клієнт бази.
- *
- * Драйвер — `postgres-js` поверх звичайного протоколу Postgres, а не HTTP.
- * HTTP-драйвер Neon дешевший на холодному старті, але вміє лише одиничні
- * запити: інтерактивних транзакцій у ньому немає. Далі вони знадобляться —
- * ізоляція даних будується на транзакції, у якій виставляється роль
- * користувача, — тож вибір драйвера тут задає саме це, а не смак.
- *
- * `server-only` угорі — не косметика: без нього випадковий імпорт із
- * клієнтського компонента затягнув би рядок підключення в браузерний бандл.
- * Тепер це помилка складання, а не витік.
- */
-export type Database = PostgresJsDatabase<typeof schema>;
+export type { Database };
 
-let instance: Database | undefined;
+/** Транзакція з уже виставленою роллю користувача. */
+export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/** Чиї дані читаємо і про яке авто йдеться. */
+export interface CarScope {
+  userId: string;
+  carId: string;
+}
 
 /**
- * Створює клієнт при першому запиті, а не при імпорті модуля.
+ * Виконує запити від імені користувача — так, щоб RLS справді працювала.
  *
- * Інакше будь-який файл, що згадує `@/db`, вимагав би DATABASE_URL уже на
- * етапі складання — навіть там, де до бази діло так і не доходить.
+ * Драйвер підключається роллю власника таблиць, а власник RLS не помічає.
+ * Тому всередині транзакції ми перемикаємось на роль `authenticated` і
+ * підкладаємо їй `sub` — саме звідти політики беруть `auth.uid()`.
+ *
+ * Через це кожен запит застосунку йде в транзакції. Ціна невелика, а виграш
+ * той, що забутий `where user_id = …` більше нічого не зливає: база просто не
+ * поверне чужий рядок. Це третій рубіж після проксі й `requireUser()` — і
+ * єдиний, який працює навіть тоді, коли перші два обійшли помилкою в коді.
+ *
+ * Порядок усередині принциповий: спершу claims, потім роль. Після
+ * перемикання на `authenticated` повернутись назад уже не вийде — прав нема.
  */
-export function getDb(): Database {
-  if (!instance) {
-    const client = postgres(getServerEnv().DATABASE_URL, {
-      // Транзакційний пулер Supabase (порт 6543) роздає одне й те саме
-      // зʼєднання різним запитам, тож підготовлених запитів там не існує:
-      // з `prepare: true` драйвер посилався б на те, чого на сервері вже нема.
-      prepare: false,
-      // Один інстанс функції обробляє один запит за раз, тож більший пул тут
-      // не прискорює нічого — лише тримає зайві зʼєднання до пулера.
-      max: 1,
-    });
+export async function withUser<T>(
+  userId: string,
+  run: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  const claims = JSON.stringify({ sub: userId, role: "authenticated" });
 
-    instance = drizzle(client, { schema });
-  }
+  return getClient().transaction(async (tx) => {
+    await tx.execute(
+      sql`select set_config('request.jwt.claims', ${claims}, true)`,
+    );
+    await tx.execute(sql`set local role authenticated`);
 
-  return instance;
+    return run(tx);
+  });
+}
+
+/** Те саме, але коли запит стосується конкретного авто. */
+export function withCarScope<T>(
+  scope: CarScope,
+  run: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return withUser(scope.userId, run);
 }
 
 export { schema };

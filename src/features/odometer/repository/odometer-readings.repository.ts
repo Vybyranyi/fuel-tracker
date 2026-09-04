@@ -1,8 +1,8 @@
 import "server-only";
 
-import { asc, desc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 
-import { getDb } from "@/db";
+import { withCarScope, type CarScope } from "@/db";
 import { odometerReadings } from "@/db/schema";
 import {
   odometerReadingFromRow,
@@ -12,13 +12,17 @@ import {
 import type { IsoDate } from "@/lib/date";
 
 export async function listRecentReadings(
+  scope: CarScope,
   limit: number,
 ): Promise<OdometerReading[]> {
-  const rows = await getDb()
-    .select()
-    .from(odometerReadings)
-    .orderBy(desc(odometerReadings.recordedAt))
-    .limit(limit);
+  const rows = await withCarScope(scope, (tx) =>
+    tx
+      .select()
+      .from(odometerReadings)
+      .where(eq(odometerReadings.carId, scope.carId))
+      .orderBy(desc(odometerReadings.recordedAt))
+      .limit(limit),
+  );
 
   return rows.map(odometerReadingFromRow);
 }
@@ -29,7 +33,10 @@ export async function listRecentReadings(
  * Потрібні, щоб перевірити нове значення з обох боків: запис можна вносити
  * не лише «в кінець», а й заднім числом між уже наявними.
  */
-export async function findNeighbours(recordedAt: IsoDate): Promise<{
+export async function findNeighbours(
+  scope: CarScope,
+  recordedAt: IsoDate,
+): Promise<{
   previous: NeighbourReading | null;
   next: NeighbourReading | null;
 }> {
@@ -38,20 +45,26 @@ export async function findNeighbours(recordedAt: IsoDate): Promise<{
     odometerKm: odometerReadings.odometerKm,
   };
 
-  const [previousRows, nextRows] = await Promise.all([
-    getDb()
-      .select(columns)
-      .from(odometerReadings)
-      .where(lt(odometerReadings.recordedAt, recordedAt))
-      .orderBy(desc(odometerReadings.recordedAt))
-      .limit(1),
-    getDb()
-      .select(columns)
-      .from(odometerReadings)
-      .where(gt(odometerReadings.recordedAt, recordedAt))
-      .orderBy(asc(odometerReadings.recordedAt))
-      .limit(1),
-  ]);
+  const ofCar = eq(odometerReadings.carId, scope.carId);
+
+  // Обидва запити в одній транзакції: два окремі `withCarScope` означали б
+  // два підключення й дві виставлені ролі там, де вистачає однієї.
+  const [previousRows, nextRows] = await withCarScope(scope, (tx) =>
+    Promise.all([
+      tx
+        .select(columns)
+        .from(odometerReadings)
+        .where(and(ofCar, lt(odometerReadings.recordedAt, recordedAt)))
+        .orderBy(desc(odometerReadings.recordedAt))
+        .limit(1),
+      tx
+        .select(columns)
+        .from(odometerReadings)
+        .where(and(ofCar, gt(odometerReadings.recordedAt, recordedAt)))
+        .orderBy(asc(odometerReadings.recordedAt))
+        .limit(1),
+    ]),
+  );
 
   const toNeighbour = (
     row: { recordedAt: string; odometerKm: number } | undefined,
@@ -67,12 +80,17 @@ export async function findNeighbours(recordedAt: IsoDate): Promise<{
 }
 
 /** Останнє за датою показання — воно ж «поточний пробіг». */
-export async function findLatestReading(): Promise<OdometerReading | null> {
-  const [row] = await getDb()
-    .select()
-    .from(odometerReadings)
-    .orderBy(desc(odometerReadings.recordedAt))
-    .limit(1);
+export async function findLatestReading(
+  scope: CarScope,
+): Promise<OdometerReading | null> {
+  const [row] = await withCarScope(scope, (tx) =>
+    tx
+      .select()
+      .from(odometerReadings)
+      .where(eq(odometerReadings.carId, scope.carId))
+      .orderBy(desc(odometerReadings.recordedAt))
+      .limit(1),
+  );
 
   return row ? odometerReadingFromRow(row) : null;
 }
@@ -84,23 +102,30 @@ export async function findLatestReading(): Promise<OdometerReading | null> {
  * день — це виправлення, а не другий рядок. Інакше різниця пробігу за місяць
  * рахувалася б із двох суперечливих значень.
  */
-export async function upsertReading(input: {
-  recordedAt: IsoDate;
-  odometerKm: number;
-  note: string | null;
-}): Promise<OdometerReading> {
-  const [row] = await getDb()
-    .insert(odometerReadings)
-    .values(input)
-    .onConflictDoUpdate({
-      target: odometerReadings.recordedAt,
-      set: {
-        odometerKm: input.odometerKm,
-        note: input.note,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
+export async function upsertReading(
+  scope: CarScope,
+  input: {
+    recordedAt: IsoDate;
+    odometerKm: number;
+    note: string | null;
+  },
+): Promise<OdometerReading> {
+  const [row] = await withCarScope(scope, (tx) =>
+    tx
+      .insert(odometerReadings)
+      .values({ ...input, carId: scope.carId })
+      .onConflictDoUpdate({
+        // Ціль конфлікту — пара «авто + дата»: та сама дата в іншому авто це
+        // окремий запис, а не той самий, який треба виправити.
+        target: [odometerReadings.carId, odometerReadings.recordedAt],
+        set: {
+          odometerKm: input.odometerKm,
+          note: input.note,
+          updatedAt: new Date(),
+        },
+      })
+      .returning(),
+  );
 
   if (!row) {
     throw new Error("UPSERT не повернув рядок");
@@ -109,11 +134,21 @@ export async function upsertReading(input: {
   return odometerReadingFromRow(row);
 }
 
-export async function deleteReading(id: string): Promise<boolean> {
-  const rows = await getDb()
-    .delete(odometerReadings)
-    .where(eq(odometerReadings.id, id))
-    .returning({ id: odometerReadings.id });
+export async function deleteReading(
+  scope: CarScope,
+  id: string,
+): Promise<boolean> {
+  const rows = await withCarScope(scope, (tx) =>
+    tx
+      .delete(odometerReadings)
+      .where(
+        and(
+          eq(odometerReadings.id, id),
+          eq(odometerReadings.carId, scope.carId),
+        ),
+      )
+      .returning({ id: odometerReadings.id }),
+  );
 
   return rows.length > 0;
 }

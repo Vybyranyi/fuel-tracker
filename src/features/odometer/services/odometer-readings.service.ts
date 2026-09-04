@@ -1,17 +1,13 @@
 import "server-only";
 
+import { requireCarScope } from "@/features/cars/services/cars.service";
 import {
   describeOdometerAnomaly,
   type OdometerReading,
 } from "@/features/odometer/domain/odometer-reading";
 import * as repository from "@/features/odometer/repository/odometer-readings.repository";
 import type { SaveOdometerReadingInput } from "@/features/odometer/schemas/odometer-reading.schema";
-import {
-  monthKeyOf,
-  todayInKyiv,
-  type IsoDate,
-  type MonthKey,
-} from "@/lib/date";
+import { todayInKyiv, type IsoDate } from "@/lib/date";
 import { UserFacingError } from "@/lib/safe-action";
 
 /** Скільки останніх показань показуємо під формою. */
@@ -25,14 +21,14 @@ export interface OdometerFormDefaults {
 }
 
 export async function getFormDefaults(): Promise<OdometerFormDefaults> {
-  const latest = await repository.findLatestReading();
+  const latest = await repository.findLatestReading(await requireCarScope());
   return { recordedAt: todayInKyiv(), latest };
 }
 
-export function getRecentReadings(
+export async function getRecentReadings(
   limit: number = RECENT_READINGS_LIMIT,
 ): Promise<OdometerReading[]> {
-  return repository.listRecentReadings(limit);
+  return repository.listRecentReadings(await requireCarScope(), limit);
 }
 
 /**
@@ -50,8 +46,10 @@ export type SaveOdometerResult =
 export async function saveReading(
   input: SaveOdometerReadingInput,
 ): Promise<SaveOdometerResult> {
+  const scope = await requireCarScope();
+
   if (!input.confirmed) {
-    const neighbours = await repository.findNeighbours(input.recordedAt);
+    const neighbours = await repository.findNeighbours(scope, input.recordedAt);
     const warning = describeOdometerAnomaly(
       input.odometerKm,
       input.recordedAt,
@@ -63,7 +61,7 @@ export async function saveReading(
     }
   }
 
-  const reading = await repository.upsertReading({
+  const reading = await repository.upsertReading(scope, {
     recordedAt: input.recordedAt,
     odometerKm: input.odometerKm,
     note: input.note,
@@ -72,20 +70,8 @@ export async function saveReading(
   return { status: "saved", reading };
 }
 
-/**
- * Місяць, за який востаннє вносили пробіг.
- *
- * Потрібен щоденному диспетчеру: нагадувати про пробіг за місяць, який уже
- * записали, — це сповіщення заради сповіщення, і саме від таких люди й
- * вимикають нагадування зовсім.
- */
-export async function getLatestReadingMonth(): Promise<MonthKey | null> {
-  const latest = await repository.findLatestReading();
-  return latest ? monthKeyOf(latest.recordedAt) : null;
-}
-
 export async function deleteReading(id: string): Promise<void> {
-  const deleted = await repository.deleteReading(id);
+  const deleted = await repository.deleteReading(await requireCarScope(), id);
 
   if (!deleted) {
     throw new UserFacingError("Це показання вже видалено");

@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isoDate, monthKey } from "@/lib/date";
 
 const sendOdometerReminder = vi.fn();
-const getLatestReadingMonth = vi.fn();
+const listPendingReminders = vi.fn();
 
 vi.mock("@/features/notifications/services/notifications.service", () => ({
   sendOdometerReminder: (...args: unknown[]) => sendOdometerReminder(...args),
 }));
 
-vi.mock("@/features/odometer/services/odometer-readings.service", () => ({
-  getLatestReadingMonth: () => getLatestReadingMonth(),
+vi.mock("@/features/cron/repository/reminders.repository", () => ({
+  listPendingReminders: (...args: unknown[]) => listPendingReminders(...args),
 }));
 
 const { runDailyJobs } =
@@ -26,95 +26,81 @@ const AUGUST = monthKey("2026-08");
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  getLatestReadingMonth.mockResolvedValue(null);
+  listPendingReminders.mockResolvedValue([]);
   sendOdometerReminder.mockResolvedValue(delivered);
 });
 
 describe("нагадування про пробіг", () => {
-  it("не шлеться серед місяця", async () => {
+  it("серед місяця не шлеться й до бази не ходить", async () => {
     const report = await runDailyJobs(MID_MONTH);
 
-    expect(report.reminder).toEqual({
-      status: "skipped",
-      reason: "not-last-day",
+    expect(report).toEqual({
+      date: MID_MONTH,
       month: AUGUST,
+      reminders: null,
+      ok: true,
     });
-    expect(sendOdometerReminder).not.toHaveBeenCalled();
-    // Показання навіть не читаємо: до бази ходити нема за чим.
-    expect(getLatestReadingMonth).not.toHaveBeenCalled();
-  });
-
-  it("шлеться в останній день місяця", async () => {
-    const report = await runDailyJobs(LAST_DAY);
-
-    expect(report.reminder).toEqual({
-      status: "sent",
-      month: AUGUST,
-      delivery: delivered,
-    });
-    expect(sendOdometerReminder).toHaveBeenCalledWith(AUGUST);
-  });
-
-  it("не шлеться, якщо пробіг за цей місяць уже внесли", async () => {
-    getLatestReadingMonth.mockResolvedValue(AUGUST);
-
-    const report = await runDailyJobs(LAST_DAY);
-
-    expect(report.reminder).toEqual({
-      status: "skipped",
-      reason: "already-recorded",
-      month: AUGUST,
-    });
+    expect(listPendingReminders).not.toHaveBeenCalled();
     expect(sendOdometerReminder).not.toHaveBeenCalled();
   });
 
-  it("шлеться, якщо останнє показання — за минулий місяць", async () => {
-    getLatestReadingMonth.mockResolvedValue(monthKey("2026-07"));
+  it("в останній день шле кожному, кого повернув запит", async () => {
+    listPendingReminders.mockResolvedValue([
+      { userId: "u1", carNames: ["Октавія"] },
+      { userId: "u2", carNames: ["Ланос", "Пріус"] },
+    ]);
 
-    expect((await runDailyJobs(LAST_DAY)).reminder.status).toBe("sent");
+    const report = await runDailyJobs(LAST_DAY);
+
+    expect(listPendingReminders).toHaveBeenCalledWith(AUGUST);
+    expect(sendOdometerReminder).toHaveBeenNthCalledWith(1, "u1", AUGUST, [
+      "Октавія",
+    ]);
+    expect(sendOdometerReminder).toHaveBeenNthCalledWith(2, "u2", AUGUST, [
+      "Ланос",
+      "Пріус",
+    ]);
+    expect(report.ok).toBe(true);
+    expect(report.reminders).toHaveLength(2);
+  });
+
+  it("нікому не шле, якщо показання за місяць уже всюди внесені", async () => {
+    const report = await runDailyJobs(LAST_DAY);
+
+    expect(sendOdometerReminder).not.toHaveBeenCalled();
+    expect(report.reminders).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it("збій в одного не ховає решту", async () => {
+    listPendingReminders.mockResolvedValue([
+      { userId: "u1", carNames: ["Октавія"] },
+      { userId: "u2", carNames: ["Ланос"] },
+    ]);
+    sendOdometerReminder.mockImplementation((userId: string) =>
+      userId === "u1"
+        ? Promise.reject(new Error("push-сервіс лежить"))
+        : Promise.resolve(delivered),
+    );
+
+    const report = await runDailyJobs(LAST_DAY);
+
+    expect(report.reminders).toEqual([
+      { status: "failed", userId: "u1", error: "push-сервіс лежить" },
+      { status: "sent", userId: "u2", delivery: delivered },
+    ]);
+    expect(report.ok).toBe(false);
   });
 
   it("правильно бере останній день коротких місяців", async () => {
     // Лютий 2026 — не високосний, тож 28-е і є останнім.
-    expect((await runDailyJobs(isoDate("2026-02-28"))).reminder.status).toBe(
-      "sent",
-    );
+    expect(
+      (await runDailyJobs(isoDate("2026-02-28"))).reminders,
+    ).not.toBeNull();
     // А 2028-й високосний: 28 лютого там ще не кінець.
-    expect((await runDailyJobs(isoDate("2028-02-28"))).reminder.status).toBe(
-      "skipped",
-    );
-    expect((await runDailyJobs(isoDate("2028-02-29"))).reminder.status).toBe(
-      "sent",
-    );
-  });
-});
-
-describe("звіт", () => {
-  it("повертає дату, за яку відпрацював", async () => {
-    expect((await runDailyJobs(MID_MONTH)).date).toBe(MID_MONTH);
-  });
-
-  it("спокійний день — усе зелене", async () => {
-    expect(await runDailyJobs(MID_MONTH)).toEqual({
-      date: MID_MONTH,
-      reminder: {
-        status: "skipped",
-        reason: "not-last-day",
-        month: AUGUST,
-      },
-      ok: true,
-    });
-  });
-
-  it("збій розсилки видно у звіті", async () => {
-    sendOdometerReminder.mockRejectedValue(new Error("push-сервіс лежить"));
-
-    const report = await runDailyJobs(LAST_DAY);
-
-    expect(report.reminder).toMatchObject({
-      status: "failed",
-      error: "push-сервіс лежить",
-    });
-    expect(report.ok).toBe(false);
+    expect((await runDailyJobs(isoDate("2028-02-28"))).reminders).toBeNull();
+    expect(
+      (await runDailyJobs(isoDate("2028-02-29"))).reminders,
+    ).not.toBeNull();
   });
 });

@@ -1,12 +1,13 @@
 import "server-only";
 
+import { requireUser } from "@/features/auth/services/session";
 import {
   odometerReminder,
   testNotification,
 } from "@/features/notifications/domain/reminder";
 import * as repository from "@/features/notifications/repository/push-subscriptions.repository";
 import {
-  sendToAll,
+  sendToUser,
   type DeliveryReport,
 } from "@/features/notifications/services/push-sender";
 import { isWebPushConfigured } from "@/features/notifications/services/vapid";
@@ -17,11 +18,13 @@ import { UserFacingError } from "@/lib/safe-action";
 export async function subscribe(
   input: SavePushSubscriptionInput,
 ): Promise<void> {
-  await repository.saveSubscription(input);
+  const user = await requireUser();
+  await repository.saveSubscription(user.id, input);
 }
 
 export async function unsubscribe(endpoint: string): Promise<void> {
-  await repository.deleteSubscription(endpoint);
+  const user = await requireUser();
+  await repository.deleteSubscription(user.id, endpoint);
 }
 
 /** Стан для сторінки налаштувань. */
@@ -35,15 +38,22 @@ export interface NotificationsStatus {
 export async function getStatus(): Promise<NotificationsStatus> {
   const configured = isWebPushConfigured();
 
+  if (!configured) {
+    // Без ключів розсилка все одно не піде, тож і рахувати нема чого.
+    return { configured, deviceCount: 0 };
+  }
+
+  const user = await requireUser();
+
   return {
     configured,
-    // Без ключів розсилка все одно не піде, тож і рахувати нема чого.
-    deviceCount: configured ? await repository.countSubscriptions() : 0,
+    deviceCount: await repository.countSubscriptions(user.id),
   };
 }
 
 export async function sendTest(): Promise<DeliveryReport> {
-  const report = await sendToAll(testNotification());
+  const user = await requireUser();
+  const report = await sendToUser(user.id, testNotification());
 
   if (report.sent === 0) {
     // Мовчазний «успіх» тут був би найгіршим результатом: людина натиснула
@@ -59,9 +69,15 @@ export async function sendTest(): Promise<DeliveryReport> {
   return report;
 }
 
-/** Нагадування про пробіг — його шле щоденний крон в останній день місяця. */
+/**
+ * Нагадування про пробіг — його шле щоденний крон в останній день місяця.
+ *
+ * Користувач приходить аргументом, а не з сесії: крон працює без неї.
+ */
 export async function sendOdometerReminder(
+  userId: string,
   month: MonthKey,
+  carNames: readonly string[],
 ): Promise<DeliveryReport> {
-  return sendToAll(odometerReminder(month));
+  return sendToUser(userId, odometerReminder(month, carNames));
 }
