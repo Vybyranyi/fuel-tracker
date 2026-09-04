@@ -26,3 +26,14 @@ export function classifyAuthFailure(error: unknown): AuthFailure {
 
   return error.status === 429 ? "rate-limited" : "rejected";
 }
+
+/**
+ * Код відмови від Supabase, якщо він є.
+ *
+ * Потрібен там, де загального «сервер відмовив» замало: «пошта не
+ * підтверджена» і «неправильний пароль» — обидва `rejected`, але людині
+ * треба робити геть різні речі.
+ */
+export function authErrorCode(error: unknown): string | undefined {
+  return isAuthApiError(error) ? error.code : undefined;
+}

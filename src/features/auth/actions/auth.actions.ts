@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import {
-  emailCodeSchema,
+  credentialsSchema,
   emailSchema,
+  newPasswordSchema,
 } from "@/features/auth/schemas/sign-in.schema";
 import * as service from "@/features/auth/services/login.service";
 import { actionClient } from "@/lib/safe-action";
@@ -22,20 +23,39 @@ const nextPathSchema = z
   .regex(/^\/(?!\/)/, "Очікується шлях усередині застосунку")
   .optional();
 
-export const sendEmailCodeAction = actionClient
-  .inputSchema(emailSchema)
-  .action(async ({ parsedInput }) => {
-    await service.sendEmailCode(parsedInput);
-    return { email: parsedInput.email };
-  });
-
-export const verifyEmailCodeAction = actionClient
-  .inputSchema(emailCodeSchema.extend({ next: nextPathSchema }))
+export const signInAction = actionClient
+  .inputSchema(credentialsSchema.extend({ next: nextPathSchema }))
   .action(async ({ parsedInput: { next, ...credentials } }) => {
-    await service.verifyEmailCode(credentials);
+    await service.signIn(credentials);
     // Перенаправлення саме тут, а не в компоненті: інакше між успішною
     // відповіддю й переходом устигав би промайнути екран входу.
     redirect(next ?? "/");
+  });
+
+export const signUpAction = actionClient
+  .inputSchema(credentialsSchema.extend({ next: nextPathSchema }))
+  .action(async ({ parsedInput: { next, ...credentials } }) => {
+    const { needsConfirmation } = await service.signUp(credentials);
+
+    // Підтвердження ще попереду — сесії немає, вести нікуди. Форма скаже
+    // піти в пошту.
+    if (needsConfirmation) return { needsConfirmation: true };
+
+    redirect(next ?? "/");
+  });
+
+export const requestPasswordResetAction = actionClient
+  .inputSchema(emailSchema)
+  .action(async ({ parsedInput }) => {
+    await service.requestPasswordReset(parsedInput);
+    return { email: parsedInput.email };
+  });
+
+export const setPasswordAction = actionClient
+  .inputSchema(newPasswordSchema)
+  .action(async ({ parsedInput }) => {
+    await service.setPassword(parsedInput.password);
+    redirect("/");
   });
 
 export const signOutAction = actionClient.action(async () => {

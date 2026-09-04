@@ -1,15 +1,15 @@
 import { Fuel } from "lucide-react";
 
-import { EmailSignInForm } from "@/features/auth/components/email-sign-in-form";
+import { CredentialsForm } from "@/features/auth/components/credentials-form";
 
 export const metadata = { title: "Вхід — Пальне" };
 
 interface LoginPageProps {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { next } = await searchParams;
+  const { next, error } = await searchParams;
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-8 px-6">
@@ -22,7 +22,17 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       </div>
 
       <div className="w-full max-w-xs">
-        <EmailSignInForm next={next} />
+        {error === "link" ? (
+          <p
+            className="mb-4 rounded-lg border border-destructive/40 px-3 py-2 text-center text-sm text-destructive"
+            role="alert"
+          >
+            Посилання з листа не спрацювало — воно протухло або ним уже
+            скористались. Спробуйте ще раз.
+          </p>
+        ) : null}
+
+        <CredentialsForm next={next} />
       </div>
     </main>
   );

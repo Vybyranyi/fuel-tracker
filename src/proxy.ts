@@ -22,6 +22,21 @@ const PUBLIC_ASSET_PATHS = new Set([
 const LOGIN_PATH = "/login";
 
 /**
+ * Сторінки, куди треба потрапляти без сесії.
+ *
+ * `/auth/` — перехід за посиланням із листа: сесії там ще немає, вона саме
+ * там і створюється. Завернути цей шлях на вхід означало б, що ні реєстрацію,
+ * ні відновлення пароля завершити неможливо.
+ */
+function isPublicPage(pathname: string): boolean {
+  return (
+    pathname === LOGIN_PATH ||
+    pathname === "/forgot-password" ||
+    pathname.startsWith("/auth/")
+  );
+}
+
+/**
  * Гейт входу — і продовження сесії.
  *
  * Дві роботи в одному місці, бо друга можлива тільки тут: серверні компоненти
@@ -44,7 +59,7 @@ export default async function proxy(request: NextRequest) {
 
   const { response, userId } = await refreshSession(request);
 
-  if (!userId && pathname !== LOGIN_PATH) {
+  if (!userId && !isPublicPage(pathname)) {
     const loginUrl = new URL(LOGIN_PATH, request.url);
 
     // Куди повернутись після входу: перехід із пуш-сповіщення веде на
