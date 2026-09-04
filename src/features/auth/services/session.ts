@@ -1,84 +1,52 @@
-import { jwtVerify, SignJWT } from "jose";
+import "server-only";
 
-import type { AuthMethod } from "@/features/auth/domain/verifier";
+import { cache } from "react";
+
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+export interface CurrentUser {
+  id: string;
+  email: string | null;
+}
 
 /**
- * Робота з сесійною кукою.
+ * Хто зараз працює із застосунком.
  *
- * Свідомо без `server-only`: цей модуль читає middleware, який виконується на
- * Edge. Пакет `server-only` поза контекстом React Server Components кидає
- * виняток, тож тут його немає — а секрет усе одно береться з `process.env`,
- * якого в браузерному бандлі не існує.
+ * `cache` з React — щоб за один рендер сходити по це раз, а не стільки разів,
+ * скільки компонентів спитає. Кеш живе рівно один запит.
+ *
+ * `getClaims` перевіряє підпис токена ключем проєкту. `getSession` тут був би
+ * помилкою: він бере куку на віру, а куку підробити може будь-хто.
  */
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getClaims();
 
-export const SESSION_COOKIE_NAME = "fuel_session";
+  if (!data?.claims.sub) return null;
 
-/** Тридцять днів: застосунок відкривають кілька разів на місяць. */
-export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
-
-const ISSUER = "fuel-tracker";
-const AUDIENCE = "fuel-tracker/app";
-
-export interface SessionPayload {
-  /** Чим підтверджували цей вхід. Знадобиться, коли зʼявиться Face ID. */
-  method: AuthMethod;
-}
-
-function secretKey(): Uint8Array {
-  const secret = process.env.AUTH_SESSION_SECRET;
-
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      "AUTH_SESSION_SECRET має містити щонайменше 32 символи — див. .env.example",
-    );
-  }
-
-  return new TextEncoder().encode(secret);
-}
-
-/** Підписує сесію. Дані всередині не секретні — підпис лише підтверджує вхід. */
-export async function signSession(payload: SessionPayload): Promise<string> {
-  return new SignJWT({ method: payload.method })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuer(ISSUER)
-    .setAudience(AUDIENCE)
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_MAX_AGE_SECONDS}s`)
-    .sign(secretKey());
-}
+  return {
+    id: data.claims.sub,
+    email: typeof data.claims.email === "string" ? data.claims.email : null,
+  };
+});
 
 /**
- * Перевіряє підпис і строк дії. Повертає `null` замість винятку: протухла або
- * підроблена кука — це звичайний «не увійшов», а не збій.
+ * Те саме, але для коду, який без користувача не має сенсу.
+ *
+ * Кличеться на початку кожного сервісу — і це не дублювання перевірки з
+ * проксі, а єдина справжня. Документація Next прямо каже: matcher проксі не
+ * поширюється на server actions, тож перевіряти доступ треба всередині
+ * кожного з них.
  */
-export async function verifySession(
-  token: string | undefined,
-): Promise<SessionPayload | null> {
-  if (!token) return null;
+export async function requireUser(): Promise<CurrentUser> {
+  const user = await getCurrentUser();
 
-  try {
-    const { payload } = await jwtVerify(token, secretKey(), {
-      issuer: ISSUER,
-      audience: AUDIENCE,
-    });
-
-    const method = payload.method;
-    return method === "pin" || method === "passkey" ? { method } : null;
-  } catch {
-    return null;
+  if (!user) {
+    // Не `UserFacingError`: це не те, що користувач може виправити, ввівши
+    // щось інше. Проксі вже мав завернути такий запит на вхід, тож сюди
+    // потрапляють хіба що застарілі вкладки.
+    throw new Error("Немає активної сесії");
   }
-}
 
-/** Налаштування куки — однакові при вході й при виході. */
-export function sessionCookieOptions() {
-  return {
-    httpOnly: true,
-    // На localhost secure-кука не збережеться, тож умова за оточенням.
-    secure: process.env.NODE_ENV === "production",
-    // `lax`, а не `strict`: інакше перехід за посиланням із пуш-сповіщення
-    // відкривав би застосунок так, ніби сесії немає.
-    sameSite: "lax" as const,
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  };
+  return user;
 }

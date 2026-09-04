@@ -1,122 +1,127 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
-import { cookies, headers } from "next/headers";
+import type { AuthError } from "@supabase/supabase-js";
+import { headers } from "next/headers";
 
-import {
-  describeWait,
-  GLOBAL_POLICY,
-  GLOBAL_THROTTLE_KEY,
-  isLocked,
-  PER_IP_POLICY,
-  registerFailure,
-  registerSuccess,
-  remainingLockMs,
-  type ThrottlePolicy,
-  type ThrottleState,
-} from "@/features/auth/domain/throttle";
-import * as repository from "@/features/auth/repository/login-attempts.repository";
-import { PinVerifier } from "@/features/auth/services/pin-verifier";
-import {
-  sessionCookieOptions,
-  SESSION_COOKIE_NAME,
-  signSession,
-  verifySession,
-} from "@/features/auth/services/session";
+import { classifyAuthFailure } from "@/features/auth/domain/auth-failure";
+import type {
+  EmailCodeInput,
+  EmailInput,
+} from "@/features/auth/schemas/sign-in.schema";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { UserFacingError } from "@/lib/safe-action";
 
-const verifier = new PinVerifier();
+/** Куди Google повертає людину після згоди. */
+const OAUTH_CALLBACK_PATH = "/auth/callback";
 
 /**
- * Ключ лічильника для адреси.
+ * Адреса застосунку так, як її бачить браузер.
  *
- * Зберігаємо хеш, а не саму адресу: для обмеження темпу достатньо відрізняти
- * адреси між собою, а тримати в базі чиїсь IP — зайва відповідальність.
- * Сіллю править сесійний секрет, тож хеші не піддаються звірянню зі словником.
+ * Не з константи й не зі змінної оточення: у превʼю-деплоях домен щоразу
+ * інший, і зашитий redirect ламав би вхід саме там, де його зручно перевіряти.
  */
-async function throttleKeyForRequest(): Promise<string> {
+async function currentOrigin(): Promise<string> {
   const headerList = await headers();
-  // На Verselі реальна адреса — перша в x-forwarded-for.
-  const forwarded = headerList.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const address = forwarded ?? headerList.get("x-real-ip") ?? "unknown";
+  const host = headerList.get("host");
+  const protocol = headerList.get("x-forwarded-proto") ?? "https";
 
-  return createHash("sha256")
-    .update(`${process.env.AUTH_SESSION_SECRET ?? ""}:${address}`)
-    .digest("hex");
-}
-
-interface Scope {
-  key: string;
-  policy: ThrottlePolicy;
-  state: ThrottleState;
-}
-
-async function loadScopes(): Promise<Scope[]> {
-  const ipKey = await throttleKeyForRequest();
-
-  const [ipState, globalState] = await Promise.all([
-    repository.findThrottleState(ipKey),
-    repository.findThrottleState(GLOBAL_THROTTLE_KEY),
-  ]);
-
-  return [
-    { key: ipKey, policy: PER_IP_POLICY, state: ipState },
-    { key: GLOBAL_THROTTLE_KEY, policy: GLOBAL_POLICY, state: globalState },
-  ];
+  return `${protocol}://${host}`;
 }
 
 /**
- * Перевіряє PIN і, якщо він правильний, видає сесійну куку.
+ * Перетворює помилку Supabase на текст для людини.
  *
- * Кидає `UserFacingError` з текстом, який можна показати як є: причина відмови
- * тут не є секретом, а мовчазне «щось пішло не так» лишило б власника без
- * підказки, скільки ще чекати.
+ * Головне тут — розрізняти «сервер відмовив» і «до сервера не достукались».
+ * Обидва випадки приходять однаковим `error`, але означають протилежне: у
+ * першому винен ввід, у другому — ввід правильний, і радити перенабрати код
+ * означає відправити людину по колу. Тому все, що не є відповіддю Supabase,
+ * іде окремим повідомленням, а справжня причина лягає в лог.
  */
-export async function signIn(pin: string): Promise<void> {
-  const now = new Date();
-  const scopes = await loadScopes();
+function explain(error: AuthError, rejectionMessage: string): UserFacingError {
+  switch (classifyAuthFailure(error)) {
+    case "unreachable":
+      // У повідомленні для людини причини немає — вона їй нічого не дасть, —
+      // тож справжня лягає в лог, інакше розбирати не буде чого.
+      console.error("Supabase Auth недоступний", error);
+      return new UserFacingError(
+        "Не вдалося звʼязатися із сервісом входу. Спробуйте за хвилину.",
+      );
 
-  const blocked = scopes.find((scope) => isLocked(scope.state, now));
-  if (blocked) {
-    throw new UserFacingError(
-      `Забагато спроб. Спробуйте ${describeWait(remainingLockMs(blocked.state, now))}.`,
+    case "rate-limited":
+      return new UserFacingError(
+        "Забагато спроб. Зачекайте хвилину й спробуйте ще раз.",
+      );
+
+    case "rejected":
+      return new UserFacingError(rejectionMessage);
+  }
+}
+
+/**
+ * Надсилає код на пошту.
+ *
+ * `shouldCreateUser` не вимикаємо: реєстрація відкрита, тож перший вхід
+ * незнайомої адреси і є створенням акаунта.
+ *
+ * Прийде саме код, а не посилання, — але лише якщо в шаблоні листа стоїть
+ * `{{ .Token }}`. Побачите в листі посилання — шаблон лишився типовим.
+ */
+export async function sendEmailCode({ email }: EmailInput): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signInWithOtp({ email });
+
+  if (error) {
+    throw explain(error, "Не вдалося надіслати код. Перевірте адресу.");
+  }
+}
+
+/** Звіряє код і відкриває сесію — куки виставляє сам клієнт Supabase. */
+export async function verifyEmailCode({
+  email,
+  code,
+}: EmailCodeInput): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token: code,
+    type: "email",
+  });
+
+  if (error) {
+    throw explain(
+      error,
+      "Код не підійшов. Перевірте його або надішліть новий.",
     );
   }
+}
 
-  const ok = await verifier.verify(pin);
+/**
+ * Починає вхід через Google і повертає адресу, куди вести браузер.
+ *
+ * Саме на сервері, а не в браузері: так перевірочний код PKCE лягає в куку,
+ * яку потім читає `/auth/callback`. Якби вхід починався з клієнта, обмін коду
+ * на сесію на сервері вже не склався б.
+ */
+export async function startGoogleSignIn(next?: string): Promise<string> {
+  const supabase = await createSupabaseServerClient();
+  const origin = await currentOrigin();
+  const callback = new URL(OAUTH_CALLBACK_PATH, origin);
 
-  if (!ok) {
-    await Promise.all(
-      scopes.map((scope) =>
-        repository.saveThrottleState(
-          scope.key,
-          registerFailure(scope.state, scope.policy, now),
-        ),
-      ),
-    );
-    throw new UserFacingError("Невірний PIN");
+  if (next) callback.searchParams.set("next", next);
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: callback.toString() },
+  });
+
+  if (error || !data.url) {
+    throw new UserFacingError("Не вдалося почати вхід через Google");
   }
 
-  // Успіх обнуляє обидва лічильники — і власний, і глобальний.
-  await Promise.all(
-    scopes.map((scope) =>
-      repository.saveThrottleState(scope.key, registerSuccess()),
-    ),
-  );
-
-  const token = await signSession({ method: verifier.method });
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+  return data.url;
 }
 
 export async function signOut(): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE_NAME);
-}
-
-/** Чи є дійсна сесія — для серверних компонентів. */
-export async function isSignedIn(): Promise<boolean> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  return (await verifySession(token)) !== null;
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
 }

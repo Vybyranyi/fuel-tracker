@@ -160,25 +160,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-
-  /* Струс крапок PIN при невірному вводі: промах видно ще до того, як очі
-     дійдуть до тексту помилки. */
-  --animate-pin-shake: pin-shake 0.4s ease-in-out;
-
-  @keyframes pin-shake {
-    0%,
-    100% {
-      transform: translateX(0);
-    }
-    20%,
-    60% {
-      transform: translateX(-8px);
-    }
-    40%,
-    80% {
-      transform: translateX(8px);
-    }
-  }
 }
 
 @layer base {

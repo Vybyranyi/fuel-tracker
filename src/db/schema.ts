@@ -115,26 +115,6 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   ...timestamps,
 });
 
-/**
- * Лічильник невдалих спроб входу.
- *
- * PIN — чотири цифри, тобто 10 000 комбінацій. Хешування тут не рятує:
- * єдиний реальний захист — обмежити темп спроб, тому стан лічильника має
- * пережити перезапуск інстансу й лежить у БД, а не в памʼяті процесу.
- */
-export const loginAttempts = pgTable(
-  "login_attempts",
-  {
-    ipHash: text("ip_hash").primaryKey(),
-    failedCount: integer("failed_count").notNull().default(0),
-    lockedUntil: timestamp("locked_until", { withTimezone: true }),
-    ...timestamps,
-  },
-  (table) => [
-    check("login_attempts_count_non_negative", sql`${table.failedCount} >= 0`),
-  ],
-);
-
 export type FuelEntryRow = typeof fuelEntries.$inferSelect;
 export type NewFuelEntryRow = typeof fuelEntries.$inferInsert;
 
@@ -143,5 +123,3 @@ export type NewOdometerReadingRow = typeof odometerReadings.$inferInsert;
 
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
-
-export type LoginAttemptRow = typeof loginAttempts.$inferSelect;

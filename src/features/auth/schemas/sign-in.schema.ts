@@ -1,11 +1,24 @@
 import { z } from "zod";
 
-import { PIN_LENGTH } from "@/features/auth/domain/verifier";
+/** Скільки цифр у коді з листа. Задає і схему, і кількість клітинок у формі. */
+export const EMAIL_CODE_LENGTH = 6;
 
-export const signInSchema = z.object({
-  pin: z
+export const emailSchema = z.object({
+  email: z
     .string()
-    .regex(new RegExp(`^\\d{${PIN_LENGTH}}$`), `PIN — це ${PIN_LENGTH} цифри`),
+    .trim()
+    .toLowerCase()
+    .pipe(z.email({ error: "Схоже на неправильну адресу" })),
 });
 
-export type SignInInput = z.infer<typeof signInSchema>;
+export const emailCodeSchema = emailSchema.extend({
+  code: z
+    .string()
+    .regex(
+      new RegExp(`^\\d{${EMAIL_CODE_LENGTH}}$`),
+      `Код — це ${EMAIL_CODE_LENGTH} цифр`,
+    ),
+});
+
+export type EmailInput = z.infer<typeof emailSchema>;
+export type EmailCodeInput = z.infer<typeof emailCodeSchema>;
