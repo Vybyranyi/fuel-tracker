@@ -217,6 +217,123 @@ export const odometerReadings = pgTable(
   ],
 );
 
+/** Позиція ТО: запчастина чи робота. Розділення потрібне статистиці. */
+export const serviceItemKindEnum = pgEnum("service_item_kind", [
+  "part",
+  "labour",
+]);
+
+/**
+ * Запис про обслуговування.
+ *
+ * `totalCost` зберігається, хоч і є сумою позицій, — з тієї ж причини, що
+ * заправка зберігає всі три числа: список витрат і помісячні агрегати не
+ * мають щоразу підіймати позиції. Перераховується в тій самій транзакції, що
+ * й запис позицій, тож розійтися не може.
+ *
+ * `odometerKm` необовʼязковий, але саме цю цифру питає будь-яке СТО, і без
+ * неї не скласти історію обслуговування.
+ */
+export const serviceRecords = pgTable(
+  "service_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    carId: uuid("car_id")
+      .notNull()
+      .references(() => cars.id, { onDelete: "cascade" }),
+    performedAt: date("performed_at", { mode: "string" }).notNull(),
+    odometerKm: integer("odometer_km"),
+    vendor: text("vendor"),
+    note: text("note"),
+    totalCost: money("total_cost").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("service_records_car_performed_at_idx").on(
+      table.carId,
+      table.performedAt.desc(),
+    ),
+    // Нуль дозволений: гарантійне ТО коштує нічого, але в історії має бути.
+    check("service_records_total_non_negative", sql`${table.totalCost} >= 0`),
+    check(
+      "service_records_odometer_positive",
+      sql`${table.odometerKm} is null or ${table.odometerKm} > 0`,
+    ),
+    ...carScopedPolicies(table.carId, "service_records"),
+  ],
+);
+
+/**
+ * Умова доступу до позиції: вона належить запису, який належить нашому авто.
+ *
+ * Два рівні вкладеності замість колонки `car_id` тут само: дубльований ключ
+ * був би ще одним місцем, де дані можуть розійтися, а обидва підзапити йдуть
+ * по первинних ключах та індексованому `cars.user_id`.
+ */
+const ownServiceRecord = (recordId: AnyPgColumn) =>
+  sql`${recordId} in (
+    select ${serviceRecords.id} from ${serviceRecords}
+    where ${serviceRecords.carId} in (
+      select ${cars.id} from ${cars} where ${cars.userId} = (select auth.uid())
+    )
+  )`;
+
+/**
+ * Позиція всередині ТО: олива, фільтр, робота.
+ *
+ * Зберігаємо і кількість, і ціну за одиницю, і суму — те саме правило, що в
+ * заправці: перерахунок історичного запису дав би трохи інше число через
+ * округлення, а тут має лишитись рівно те, що людина бачила при внесенні.
+ *
+ * `position` тримає порядок: без нього рядки поверталися б у довільній
+ * послідовності, і форма щоразу показувала б їх інакше.
+ */
+export const serviceItems = pgTable(
+  "service_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serviceRecordId: uuid("service_record_id")
+      .notNull()
+      .references(() => serviceRecords.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    name: text("name").notNull(),
+    quantity: money("quantity").notNull(),
+    unitPrice: money("unit_price").notNull(),
+    amount: money("amount").notNull(),
+    kind: serviceItemKindEnum("kind").notNull(),
+  },
+  (table) => [
+    index("service_items_record_idx").on(table.serviceRecordId, table.position),
+    check("service_items_quantity_positive", sql`${table.quantity} > 0`),
+    check(
+      "service_items_unit_price_non_negative",
+      sql`${table.unitPrice} >= 0`,
+    ),
+    check("service_items_amount_non_negative", sql`${table.amount} >= 0`),
+    pgPolicy("service_items_select_own", {
+      for: "select",
+      to: authenticatedRole,
+      using: ownServiceRecord(table.serviceRecordId),
+    }),
+    pgPolicy("service_items_insert_own", {
+      for: "insert",
+      to: authenticatedRole,
+      withCheck: ownServiceRecord(table.serviceRecordId),
+    }),
+    pgPolicy("service_items_update_own", {
+      for: "update",
+      to: authenticatedRole,
+      using: ownServiceRecord(table.serviceRecordId),
+      withCheck: ownServiceRecord(table.serviceRecordId),
+    }),
+    pgPolicy("service_items_delete_own", {
+      for: "delete",
+      to: authenticatedRole,
+      using: ownServiceRecord(table.serviceRecordId),
+    }),
+  ],
+);
+
 /**
  * Web Push підписки.
  *
@@ -276,6 +393,10 @@ export type NewFuelEntryRow = typeof fuelEntries.$inferInsert;
 
 export type OdometerReadingRow = typeof odometerReadings.$inferSelect;
 export type NewOdometerReadingRow = typeof odometerReadings.$inferInsert;
+
+export type ServiceRecordRow = typeof serviceRecords.$inferSelect;
+export type ServiceItemRow = typeof serviceItems.$inferSelect;
+export type ServiceItemKind = (typeof serviceItemKindEnum.enumValues)[number];
 
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;

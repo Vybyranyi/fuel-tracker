@@ -13,7 +13,7 @@ import {
   signUpAction,
 } from "@/features/auth/actions/auth.actions";
 import { MIN_PASSWORD_LENGTH } from "@/features/auth/schemas/sign-in.schema";
-import { firstValidationError } from "@/features/auth/components/validation-error";
+import { firstValidationError } from "@/lib/validation-error";
 
 type Mode = "sign-in" | "sign-up";
 

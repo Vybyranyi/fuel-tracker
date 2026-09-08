@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestPasswordResetAction } from "@/features/auth/actions/auth.actions";
-import { firstValidationError } from "@/features/auth/components/validation-error";
+import { firstValidationError } from "@/lib/validation-error";
 
 export function ForgotPasswordForm() {
   const { execute, isPending, result } = useAction(requestPasswordResetAction);

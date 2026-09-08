@@ -1,17 +1,23 @@
 "use client";
 
-import { ChartColumn, Fuel, Gauge, Settings } from "lucide-react";
+import { ChartColumn, Ellipsis, Fuel, Wrench } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-/** Розділи застосунку. */
+/**
+ * Розділи застосунку.
+ *
+ * Чотири — не через дизайн, а через ширину: на 320px пʼятий підпис уже не
+ * вміщається, а рівні комірки потрібні повзунку-індикатору. Тому пробіг і
+ * налаштування зібрані в «Ще»: до них ходять рідше, ніж до решти.
+ */
 const TABS = [
   { href: "/", label: "Заправка", icon: Fuel },
+  { href: "/costs/service", label: "ТО", icon: Wrench },
   { href: "/stats", label: "Статистика", icon: ChartColumn },
-  { href: "/odometer", label: "Пробіг", icon: Gauge },
-  { href: "/settings", label: "Налаштування", icon: Settings },
+  { href: "/more", label: "Ще", icon: Ellipsis },
 ] as const;
 
 /** Ширина однієї вкладки. Капсула росте разом із кількістю розділів. */
@@ -27,9 +33,18 @@ const TAB_WIDTH_REM = 5.5;
  * з боків і знизу видно, що під нею щось проходить, — без цього розмиття
  * нема на чому показати себе.
  */
+/** Чи належить поточний шлях цьому розділу. */
+function isActive(href: string, pathname: string): boolean {
+  return href === "/"
+    ? pathname === "/"
+    : pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function AppNav() {
   const pathname = usePathname();
-  const activeIndex = TABS.findIndex((tab) => tab.href === pathname);
+  // За префіксом, а не за точним збігом: `/costs/service/new` — це той самий
+  // розділ, і вкладка не має гаснути, щойно людина відкрила форму.
+  const activeIndex = TABS.findIndex((tab) => isActive(tab.href, pathname));
 
   return (
     <nav
@@ -59,8 +74,8 @@ export function AppNav() {
           />
         ) : null}
 
-        {TABS.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname === href;
+        {TABS.map(({ href, label, icon: Icon }, index) => {
+          const active = index === activeIndex;
 
           return (
             /* min-w-0 обовʼязково: без нього довгий підпис розпирає свою
@@ -69,13 +84,13 @@ export function AppNav() {
             <li key={href} className="relative min-w-0 flex-1">
               <Link
                 href={href}
-                aria-current={isActive ? "page" : undefined}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   // 10px, а не 11: із чотирма вкладками «Налаштування» при
                   // більшому кеглі впирається в край капсули. Це ще й рівно
                   // той розмір, яким підписані вкладки в самій iOS.
                   "flex h-14 flex-col items-center justify-center gap-1 rounded-full text-[10px] font-medium transition-colors",
-                  isActive
+                  active
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { setPasswordAction } from "@/features/auth/actions/auth.actions";
 import { MIN_PASSWORD_LENGTH } from "@/features/auth/schemas/sign-in.schema";
-import { firstValidationError } from "@/features/auth/components/validation-error";
+import { firstValidationError } from "@/lib/validation-error";
 
 export function UpdatePasswordForm() {
   const { execute, isPending, result } = useAction(setPasswordAction);
