@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, Ellipsis, Fuel, Wrench } from "lucide-react";
+import { ChartColumn, Ellipsis, Fuel, Receipt } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
  */
 const TABS = [
   { href: "/", label: "Заправка", icon: Fuel },
-  { href: "/costs/service", label: "ТО", icon: Wrench },
+  { href: "/costs", label: "Витрати", icon: Receipt },
   { href: "/stats", label: "Статистика", icon: ChartColumn },
   { href: "/more", label: "Ще", icon: Ellipsis },
 ] as const;

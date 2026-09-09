@@ -1,11 +1,11 @@
 import { Fuel } from "lucide-react";
+import Link from "next/link";
 
+import { Button } from "@/components/ui/button";
+import { CostList } from "@/features/costs/components/cost-list";
+import { getRecentCosts } from "@/features/costs/services/costs.service";
 import { FuelEntryForm } from "@/features/fuel/components/fuel-entry-form";
-import { FuelEntryList } from "@/features/fuel/components/fuel-entry-list";
-import {
-  getFormDefaults,
-  getRecentEntries,
-} from "@/features/fuel/services/fuel-entries.service";
+import { getFormDefaults } from "@/features/fuel/services/fuel-entries.service";
 import { InstallHint } from "@/features/pwa/components/install-hint";
 
 /**
@@ -15,15 +15,23 @@ import { InstallHint } from "@/features/pwa/components/install-hint";
  */
 export const dynamic = "force-dynamic";
 
+/**
+ * Скільки останніх записів показуємо під формою.
+ *
+ * П'ять, а не десять: тут вони потрібні лише щоб побачити, що заправка
+ * збереглася, і згадати попередню ціну. Дивитись історію ходять у «Витрати».
+ */
+const RECENT_LIMIT = 5;
+
 export default async function FuelEntryPage() {
   // Два незалежні запити — немає причин чекати їх по черзі.
-  const [defaults, entries] = await Promise.all([
+  const [defaults, recent] = await Promise.all([
     getFormDefaults(),
-    getRecentEntries(),
+    getRecentCosts(RECENT_LIMIT),
   ]);
 
   return (
-    <main className="flex flex-col gap-8 pt-8">
+    <main className="flex flex-col gap-8 pt-6">
       <header className="flex items-center gap-3">
         <Fuel className="size-6 text-muted-foreground" aria-hidden />
         <h1 className="text-2xl font-semibold tracking-tight">Заправка</h1>
@@ -32,10 +40,16 @@ export default async function FuelEntryPage() {
       <FuelEntryForm defaults={defaults} />
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Останні заправки
-        </h2>
-        <FuelEntryList entries={entries} />
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Останні витрати
+          </h2>
+          <Button asChild variant="link" size="sm" className="h-auto p-0">
+            <Link href="/costs">Усі</Link>
+          </Button>
+        </div>
+
+        <CostList entries={recent} />
       </section>
 
       {/* Внизу, а не над формою: внести заправку важливіше, ніж встановити

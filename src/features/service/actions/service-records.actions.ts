@@ -12,7 +12,7 @@ import * as service from "@/features/service/services/service-records.service";
 import { actionClient } from "@/lib/safe-action";
 
 /** Сторінки, які показують ТО. Статистика теж — вона рахує ці суми. */
-const AFFECTED_PATHS = ["/costs/service", "/", "/stats"] as const;
+const AFFECTED_PATHS = ["/costs", "/", "/stats"] as const;
 
 function revalidateServicePages(): void {
   for (const path of AFFECTED_PATHS) {
@@ -25,7 +25,7 @@ export const createServiceRecordAction = actionClient
   .action(async ({ parsedInput }) => {
     await service.createRecord(parsedInput);
     revalidateServicePages();
-    redirect("/costs/service");
+    redirect("/costs?kind=service");
   });
 
 export const updateServiceRecordAction = actionClient
@@ -33,7 +33,7 @@ export const updateServiceRecordAction = actionClient
   .action(async ({ parsedInput }) => {
     await service.updateRecord(parsedInput);
     revalidateServicePages();
-    redirect("/costs/service");
+    redirect("/costs?kind=service");
   });
 
 export const deleteServiceRecordAction = actionClient
