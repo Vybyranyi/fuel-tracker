@@ -1,4 +1,4 @@
-import { Car, ChevronRight, Gauge, Settings } from "lucide-react";
+import { Car, ChevronRight, Download, Gauge, Settings } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = { title: "Ще — Пальне" };
@@ -7,6 +7,7 @@ export const metadata = { title: "Ще — Пальне" };
 const SECTIONS = [
   { href: "/odometer", label: "Пробіг", icon: Gauge },
   { href: "/cars", label: "Мої авто", icon: Car },
+  { href: "/export", label: "Вивантаження", icon: Download },
   { href: "/settings", label: "Налаштування", icon: Settings },
 ] as const;
 

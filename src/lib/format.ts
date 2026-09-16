@@ -80,6 +80,13 @@ const dayMonthFormatter = new Intl.DateTimeFormat(LOCALE, {
   timeZone: "UTC",
 });
 
+const numericDateFormatter = new Intl.DateTimeFormat(LOCALE, {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 const fullDateFormatter = new Intl.DateTimeFormat(LOCALE, {
   day: "numeric",
   month: "long",
@@ -110,6 +117,16 @@ function asUtcInstant(value: IsoDate | MonthKey): Date {
 /** `15 серпня` — для списку заправок у межах поточного року. */
 export function formatDayMonth(date: IsoDate): string {
   return dayMonthFormatter.format(asUtcInstant(date));
+}
+
+/**
+ * `05.03.2026` — дата в таблиці звіту.
+ *
+ * Цифрами, а не словами: у вивантаженні дати стоять стовпчиком, і «5 березня
+ * 2026 р.» поруч із «15 листопада 2026 р.» перетворює колонку на рваний край.
+ */
+export function formatNumericDate(date: IsoDate): string {
+  return numericDateFormatter.format(asUtcInstant(date));
 }
 
 /** `15 серпня 2026 р.` — повна дата. */
