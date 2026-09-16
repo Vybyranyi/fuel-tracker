@@ -19,6 +19,7 @@ interface StatTileProps {
    */
   upIsGood?: boolean | null;
   hint?: string;
+  className?: string;
 }
 
 /**
@@ -33,6 +34,7 @@ export function StatTile({
   deltaPercent,
   upIsGood = null,
   hint,
+  className,
 }: StatTileProps) {
   const hasDelta =
     deltaPercent !== null && deltaPercent !== undefined && deltaPercent !== 0;
@@ -48,7 +50,7 @@ export function StatTile({
         : "text-[color:var(--stat-bad)]";
 
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className={cn("rounded-xl border bg-card p-4", className)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       {/* Пропорційні цифри, а не табличні: у великому окремому числі рівна
           ширина знаків робить його розрідженим. */}

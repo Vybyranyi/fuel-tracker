@@ -3,9 +3,10 @@ import "server-only";
 import { asc, eq, sql } from "drizzle-orm";
 
 import { withCarScope, type CarScope } from "@/db";
-import { fuelEntries, odometerReadings } from "@/db/schema";
+import { fuelEntries, odometerReadings, serviceRecords } from "@/db/schema";
 import type {
-  MonthlyAggregateRow,
+  MonthlyFuelRow,
+  MonthlyServiceRow,
   OdometerPoint,
 } from "@/features/stats/domain/monthly-stats";
 import type { IsoDate } from "@/lib/date";
@@ -18,7 +19,7 @@ import type { IsoDate } from "@/lib/date";
  */
 export async function aggregateFuelByMonth(
   scope: CarScope,
-): Promise<MonthlyAggregateRow[]> {
+): Promise<MonthlyFuelRow[]> {
   const period = sql<string>`to_char(${fuelEntries.filledAt}, 'YYYY-MM')`;
 
   return withCarScope(scope, (tx) =>
@@ -31,6 +32,35 @@ export async function aggregateFuelByMonth(
       })
       .from(fuelEntries)
       .where(eq(fuelEntries.carId, scope.carId))
+      .groupBy(period)
+      .orderBy(asc(period)),
+  );
+}
+
+/**
+ * Помісячні суми ТО.
+ *
+ * Окремим запитом, а не приєднанням до заправок: у місяці може бути ТО без
+ * жодної заправки й навпаки, тож обʼєднувати ці ряди має домен, де видно, що
+ * робиться з порожньою стороною.
+ *
+ * Сума береться з `total_cost` самого запису, а не з його позицій: воно там
+ * і зберігається саме для таких запитів.
+ */
+export async function aggregateServiceByMonth(
+  scope: CarScope,
+): Promise<MonthlyServiceRow[]> {
+  const period = sql<string>`to_char(${serviceRecords.performedAt}, 'YYYY-MM')`;
+
+  return withCarScope(scope, (tx) =>
+    tx
+      .select({
+        period,
+        totalCost: sql<string>`sum(${serviceRecords.totalCost})`,
+        recordCount: sql<number>`count(*)::int`,
+      })
+      .from(serviceRecords)
+      .where(eq(serviceRecords.carId, scope.carId))
       .groupBy(period)
       .orderBy(asc(period)),
   );

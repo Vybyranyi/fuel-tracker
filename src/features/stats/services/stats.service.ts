@@ -4,32 +4,33 @@ import { requireCarScope } from "@/features/cars/services/cars.service";
 import {
   buildMonthlyStats,
   totalsOf,
-  type MonthlyFuelStats,
+  type MonthlyStats,
   type StatsTotals,
 } from "@/features/stats/domain/monthly-stats";
 import * as repository from "@/features/stats/repository/stats.repository";
 
 export interface StatsOverview {
-  months: MonthlyFuelStats[];
+  months: MonthlyStats[];
   totals: StatsTotals;
   /** Поточний місяць — його показуємо картками окремо. */
-  current: MonthlyFuelStats | null;
+  current: MonthlyStats | null;
   /** Попередній місяць — потрібен, щоб показати зміну. */
-  previous: MonthlyFuelStats | null;
+  previous: MonthlyStats | null;
 }
 
 export async function getStatsOverview(): Promise<StatsOverview> {
   const scope = await requireCarScope();
 
-  const [rows, points] = await Promise.all([
+  const [fuelRows, serviceRows, points] = await Promise.all([
     repository.aggregateFuelByMonth(scope),
+    repository.aggregateServiceByMonth(scope),
     repository.listOdometerPoints(scope),
   ]);
 
-  const months = buildMonthlyStats(rows, points);
+  const months = buildMonthlyStats(fuelRows, serviceRows, points);
 
-  // Останній місяць із заправками, а не календарний поточний: якщо цього
-  // місяця ще не заправлялись, картки з нулями не сказали б нічого корисного.
+  // Останній місяць із записами, а не календарний поточний: якщо цього місяця
+  // ще нічого не було, картки з нулями не сказали б нічого корисного.
   return {
     months,
     totals: totalsOf(months),

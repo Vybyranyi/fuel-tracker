@@ -8,7 +8,8 @@ import {
   distanceByMonth,
   percentChange,
   totalsOf,
-  type MonthlyAggregateRow,
+  type MonthlyFuelRow,
+  type MonthlyServiceRow,
   type OdometerPoint,
 } from "@/features/stats/domain/monthly-stats";
 import { isoDate } from "@/lib/date";
@@ -113,9 +114,13 @@ describe("distanceByMonth", () => {
 });
 
 describe("buildMonthlyStats", () => {
-  const rows: MonthlyAggregateRow[] = [
+  const rows: MonthlyFuelRow[] = [
     { period: "2026-08", liters: "120.00", totalCost: "6960.00", fillCount: 3 },
     { period: "2026-07", liters: "100.00", totalCost: "5700.00", fillCount: 2 },
+  ];
+
+  const service: MonthlyServiceRow[] = [
+    { period: "2026-08", totalCost: "3200.00", recordCount: 1 },
   ];
 
   const readings = [
@@ -125,14 +130,13 @@ describe("buildMonthlyStats", () => {
   ];
 
   it("впорядковує місяці від найранішого — саме так їх чекає вісь часу", () => {
-    expect(buildMonthlyStats(rows, readings).map((m) => m.month)).toEqual([
-      "2026-07",
-      "2026-08",
-    ]);
+    expect(
+      buildMonthlyStats(rows, service, readings).map((m) => m.month),
+    ).toEqual(["2026-07", "2026-08"]);
   });
 
   it("зводить суми, середню ціну й витрату", () => {
-    const [july, august] = buildMonthlyStats(rows, readings);
+    const [july, august] = buildMonthlyStats(rows, service, readings);
 
     expect(n(july.liters)).toBe(100);
     expect(n(july.averagePricePerLiter)).toBe(57);
@@ -140,13 +144,51 @@ describe("buildMonthlyStats", () => {
     // 100 л на 1500 км
     expect(n(july.consumptionPer100Km)).toBe(6.67);
 
-    expect(n(august.totalCost)).toBe(6960);
+    expect(n(august.fuelCost)).toBe(6960);
     expect(n(august.averagePricePerLiter)).toBe(58);
     expect(n(august.consumptionPer100Km)).toBe(8);
   });
 
+  it("додає ТО до витрат місяця, але не до витрати пального", () => {
+    const [july, august] = buildMonthlyStats(rows, service, readings);
+
+    expect(n(august.serviceCost)).toBe(3200);
+    expect(n(august.totalCost)).toBe(10160);
+    expect(august.serviceCount).toBe(1);
+    // Середня ціна літра й л/100 км рахуються з самого пального: сервіс його
+    // не палить, і замість мастил у баку вийшла б вигадана ціна.
+    expect(n(august.averagePricePerLiter)).toBe(58);
+    expect(n(august.consumptionPer100Km)).toBe(8);
+
+    // Місяць без ТО — нуль, а не порожнеча: у сумі він має брати участь.
+    expect(n(july.serviceCost)).toBe(0);
+    expect(n(july.totalCost)).toBe(5700);
+  });
+
+  it("не губить місяць, у якому було лише ТО", () => {
+    const months = buildMonthlyStats(
+      rows,
+      [...service, { period: "2026-09", totalCost: "900.00", recordCount: 2 }],
+      readings,
+    );
+
+    expect(months.map((m) => m.month)).toEqual([
+      "2026-07",
+      "2026-08",
+      "2026-09",
+    ]);
+
+    const september = months[2];
+    expect(n(september.liters)).toBe(0);
+    expect(n(september.fuelCost)).toBe(0);
+    expect(n(september.totalCost)).toBe(900);
+    expect(september.fillCount).toBe(0);
+    // Без жодної заправки середньої ціни не існує — і нуль тут був би брехнею.
+    expect(september.averagePricePerLiter).toBeNull();
+  });
+
   it("без показань одометра лишає витрату порожньою, а не нульовою", () => {
-    const [july] = buildMonthlyStats(rows, []);
+    const [july] = buildMonthlyStats(rows, [], []);
     expect(july.distanceKm).toBeNull();
     expect(july.consumptionPer100Km).toBeNull();
   });
@@ -168,6 +210,7 @@ describe("totalsOf", () => {
         fillCount: 3,
       },
     ],
+    [{ period: "2026-08", totalCost: "3000.00", recordCount: 1 }],
     [
       reading("2026-06-30", 150000),
       reading("2026-07-31", 151500),
@@ -178,8 +221,21 @@ describe("totalsOf", () => {
   it("сумує літри, гроші й заправки", () => {
     const totals = totalsOf(months);
     expect(n(totals.liters)).toBe(220);
-    expect(n(totals.totalCost)).toBe(12660);
+    expect(n(totals.fuelCost)).toBe(12660);
+    expect(n(totals.serviceCost)).toBe(3000);
+    expect(n(totals.totalCost)).toBe(15660);
     expect(totals.fillCount).toBe(5);
+    expect(totals.serviceCount).toBe(1);
+  });
+
+  it("рахує дві ціни кілометра — на пальному і разом із ТО", () => {
+    const totals = totalsOf(months);
+
+    // 3000 км разом. 12 660 ₴ пального → 4,22 ₴/км.
+    expect(totals.distanceKm).toBe(3000);
+    expect(n(totals.fuelCostPerKm)).toBe(4.22);
+    // З ТО — 15 660 ₴ на ті самі кілометри → 5,22 ₴/км.
+    expect(n(totals.totalCostPerKm)).toBe(5.22);
   });
 
   it("рахує підсумкову витрату лише по місяцях із відомим пробігом", () => {
@@ -200,6 +256,7 @@ describe("totalsOf", () => {
           fillCount: 1,
         },
       ],
+      [{ period: "2026-09", totalCost: "9000.00", recordCount: 1 }],
       [reading("2026-06-30", 150000), reading("2026-07-31", 151500)],
     );
 
@@ -207,15 +264,21 @@ describe("totalsOf", () => {
     expect(totals.distanceKm).toBe(1500);
     // Рахується лише липень: 100 л на 1500 км.
     expect(n(totals.consumptionPer100Km)).toBe(6.67);
+    // Те саме правило для обох цін кілометра: вересневі 9000 ₴ на ТО не
+    // діляться на липневий пробіг.
+    expect(n(totals.fuelCostPerKm)).toBe(3.8);
+    expect(n(totals.totalCostPerKm)).toBe(3.8);
     // А от літри й гроші в підсумку — за весь час.
     expect(n(totals.liters)).toBe(1099);
+    expect(n(totals.serviceCost)).toBe(9000);
   });
 
   it("без жодного показання пробіг і витрата порожні", () => {
-    const totals = totalsOf(buildMonthlyStats([], []));
+    const totals = totalsOf(buildMonthlyStats([], [], []));
     expect(totals.distanceKm).toBeNull();
     expect(totals.consumptionPer100Km).toBeNull();
-    expect(totals.costPerKm).toBeNull();
+    expect(totals.fuelCostPerKm).toBeNull();
+    expect(totals.totalCostPerKm).toBeNull();
   });
 });
 

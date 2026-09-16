@@ -1,5 +1,6 @@
 import { monthKey, monthKeyOf, type IsoDate, type MonthKey } from "@/lib/date";
 import {
+  DECIMAL2_ZERO,
   decimal2,
   decimal2FromDbString,
   divideDecimals,
@@ -7,26 +8,39 @@ import {
   type Decimal2,
 } from "@/lib/units";
 
-/** Заправки за один місяць, згорнуті в кілька чисел. */
-export interface MonthlyFuelStats {
+/** Заправки і ТО за один місяць, згорнуті в кілька чисел. */
+export interface MonthlyStats {
   month: MonthKey;
   liters: Decimal2;
+  /** Гроші на пальне. */
+  fuelCost: Decimal2;
+  /** Гроші на обслуговування. */
+  serviceCost: Decimal2;
+  /** Пальне і ТО разом — те, що насправді вийшло з гаманця за місяць. */
   totalCost: Decimal2;
-  /** Гроші поділені на літри, а не середнє цін окремих заправок. */
+  /** Гроші за пальне поділені на літри, а не середнє цін окремих заправок. */
   averagePricePerLiter: Decimal2 | null;
   fillCount: number;
+  serviceCount: number;
   /** Пробіг за місяць із показань одометра. `null`, якщо їх бракує. */
   distanceKm: number | null;
   /** Літрів на 100 км. `null`, якщо пробіг невідомий. */
   consumptionPer100Km: Decimal2 | null;
 }
 
-/** Рядок помісячної агрегації так, як його повертає SQL. */
-export interface MonthlyAggregateRow {
+/** Рядок помісячної агрегації заправок так, як його повертає SQL. */
+export interface MonthlyFuelRow {
   period: string;
   liters: string;
   totalCost: string;
   fillCount: number;
+}
+
+/** Те саме для ТО: місяць, сума записів і їх кількість. */
+export interface MonthlyServiceRow {
+  period: string;
+  totalCost: string;
+  recordCount: number;
 }
 
 /** Показання одометра, зведене до пари «дата — кілометри». */
@@ -120,50 +134,86 @@ export function distanceByMonth(
 /**
  * Зводить помісячні суми з БД і показання одометра в один ряд для графіків.
  *
+ * Два потоки, а не один: ТО буває в місяці, де жодного разу не заправлялись,
+ * і навпаки. Тому місяці — це обʼєднання ключів обох агрегатів, а не рядки
+ * заправок, до яких ТО дописується збоку.
+ *
  * Місяці повертаються від найранішого до найпізнішого — саме в такому порядку
  * їх чекає вісь часу.
  */
 export function buildMonthlyStats(
-  rows: readonly MonthlyAggregateRow[],
+  fuelRows: readonly MonthlyFuelRow[],
+  serviceRows: readonly MonthlyServiceRow[],
   readings: readonly OdometerPoint[],
-): MonthlyFuelStats[] {
+): MonthlyStats[] {
   const distances = distanceByMonth(readings);
+  const fuel = new Map(fuelRows.map((row) => [monthKey(row.period), row]));
+  const service = new Map(
+    serviceRows.map((row) => [monthKey(row.period), row]),
+  );
 
-  return rows
-    .map((row): MonthlyFuelStats => {
-      const month = monthKey(row.period);
-      const liters = decimal2FromDbString(row.liters);
-      const totalCost = decimal2FromDbString(row.totalCost);
-      const distanceKm = distances.get(month) ?? null;
+  const months = [...new Set([...fuel.keys(), ...service.keys()])].sort(
+    (a, b) => a.localeCompare(b),
+  );
 
-      return {
-        month,
-        liters,
-        totalCost,
-        averagePricePerLiter: averagePricePerLiter(totalCost, liters),
-        fillCount: row.fillCount,
-        distanceKm,
-        consumptionPer100Km: consumptionPer100Km(liters, distanceKm),
-      };
-    })
-    .sort((a, b) => a.month.localeCompare(b.month));
+  return months.map((month): MonthlyStats => {
+    const fuelRow = fuel.get(month);
+    const serviceRow = service.get(month);
+
+    const liters = fuelRow
+      ? decimal2FromDbString(fuelRow.liters)
+      : DECIMAL2_ZERO;
+    const fuelCost = fuelRow
+      ? decimal2FromDbString(fuelRow.totalCost)
+      : DECIMAL2_ZERO;
+    const serviceCost = serviceRow
+      ? decimal2FromDbString(serviceRow.totalCost)
+      : DECIMAL2_ZERO;
+    const distanceKm = distances.get(month) ?? null;
+
+    return {
+      month,
+      liters,
+      fuelCost,
+      serviceCost,
+      totalCost: sumDecimals([fuelCost, serviceCost]),
+      averagePricePerLiter: averagePricePerLiter(fuelCost, liters),
+      fillCount: fuelRow?.fillCount ?? 0,
+      serviceCount: serviceRow?.recordCount ?? 0,
+      distanceKm,
+      // Витрата — це літри на кілометри, тож ТО в неї не входить ні тут, ні
+      // будь-де далі: сервіс не спалює пального.
+      consumptionPer100Km: consumptionPer100Km(liters, distanceKm),
+    };
+  });
 }
 
 /** Підсумок за весь час — для карток угорі сторінки. */
 export interface StatsTotals {
   liters: Decimal2;
+  fuelCost: Decimal2;
+  serviceCost: Decimal2;
   totalCost: Decimal2;
   averagePricePerLiter: Decimal2 | null;
   fillCount: number;
+  serviceCount: number;
   distanceKm: number | null;
   consumptionPer100Km: Decimal2 | null;
-  costPerKm: Decimal2 | null;
+  /** Кілометр на самому пальному. */
+  fuelCostPerKm: Decimal2 | null;
+  /** Кілометр разом із обслуговуванням. */
+  totalCostPerKm: Decimal2 | null;
 }
 
-export function totalsOf(months: readonly MonthlyFuelStats[]): StatsTotals {
+export function totalsOf(months: readonly MonthlyStats[]): StatsTotals {
   const liters = sumDecimals(months.map((month) => month.liters));
-  const totalCost = sumDecimals(months.map((month) => month.totalCost));
+  const fuelCost = sumDecimals(months.map((month) => month.fuelCost));
+  const serviceCost = sumDecimals(months.map((month) => month.serviceCost));
   const fillCount = months.reduce((sum, month) => sum + month.fillCount, 0);
+  const serviceCount = months.reduce(
+    (sum, month) => sum + month.serviceCount,
+    0,
+  );
 
   // Пробіг сумуємо лише по місяцях, де він відомий: інакше один місяць без
   // показань занизив би підсумкову витрату, а не просто випав із неї.
@@ -172,16 +222,24 @@ export function totalsOf(months: readonly MonthlyFuelStats[]): StatsTotals {
     ? known.reduce((sum, month) => sum + (month.distanceKm ?? 0), 0)
     : null;
   const knownLiters = sumDecimals(known.map((month) => month.liters));
-  const knownCost = sumDecimals(known.map((month) => month.totalCost));
+  const knownFuelCost = sumDecimals(known.map((month) => month.fuelCost));
+  const knownTotalCost = sumDecimals(known.map((month) => month.totalCost));
 
   return {
     liters,
-    totalCost,
-    averagePricePerLiter: averagePricePerLiter(totalCost, liters),
+    fuelCost,
+    serviceCost,
+    totalCost: sumDecimals([fuelCost, serviceCost]),
+    averagePricePerLiter: averagePricePerLiter(fuelCost, liters),
     fillCount,
+    serviceCount,
     distanceKm,
     consumptionPer100Km: consumptionPer100Km(knownLiters, distanceKm),
-    costPerKm: costPerKm(knownCost, distanceKm),
+    // Дві ціни кілометра, а не одна: перша каже, скільки коштує їхати, друга —
+    // скільки коштує мати авто. Змішавши їх, не побачиш ні того, ні того:
+    // місяць із заміною зчеплення підняв би «витрату на пальне» вдвічі.
+    fuelCostPerKm: costPerKm(knownFuelCost, distanceKm),
+    totalCostPerKm: costPerKm(knownTotalCost, distanceKm),
   };
 }
 

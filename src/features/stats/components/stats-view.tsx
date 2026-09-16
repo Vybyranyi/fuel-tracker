@@ -3,13 +3,15 @@ import { ChartColumn } from "lucide-react";
 import {
   MonthlyBarChart,
   MonthlyLineChart,
+  MonthlyStackedBarChart,
   type ChartPoint,
+  type StackedPoint,
 } from "@/features/stats/components/monthly-charts";
 import { MonthlyTable } from "@/features/stats/components/monthly-table";
 import { StatTile } from "@/features/stats/components/stat-tile";
 import {
   percentChange,
-  type MonthlyFuelStats,
+  type MonthlyStats,
 } from "@/features/stats/domain/monthly-stats";
 import type { StatsOverview } from "@/features/stats/services/stats.service";
 import {
@@ -35,8 +37,8 @@ const MIN_MONTHS_FOR_CHART = 2;
  * підпис у підказці не може розійтися з таблицею під графіком.
  */
 function toPoints(
-  months: readonly MonthlyFuelStats[],
-  pick: (month: MonthlyFuelStats) => Decimal2 | null,
+  months: readonly MonthlyStats[],
+  pick: (month: MonthlyStats) => Decimal2 | null,
   format: (value: Decimal2) => string,
 ): ChartPoint[] {
   return months.map((month) => {
@@ -49,6 +51,19 @@ function toPoints(
       formatted: value === null ? "—" : format(value),
     };
   });
+}
+
+/** Те саме для складеного графіка: дві серії плюс готовий підсумок. */
+function toStackedPoints(months: readonly MonthlyStats[]): StackedPoint[] {
+  return months.map((month) => ({
+    label: formatMonthShort(month.month),
+    fullLabel: formatMonth(month.month),
+    fuel: decimal2ToNumber(month.fuelCost),
+    service: decimal2ToNumber(month.serviceCost),
+    fuelFormatted: formatMoney(month.fuelCost),
+    serviceFormatted: formatMoney(month.serviceCost),
+    totalFormatted: formatMoney(month.totalCost),
+  }));
 }
 
 /**
@@ -66,8 +81,8 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
       <main className="flex flex-col gap-8 pt-8">
         <Header />
         <p className="text-sm text-muted-foreground">
-          Поки що немає жодної заправки. Статистика зʼявиться після першого
-          запису.
+          Поки що немає жодного запису. Статистика зʼявиться після першої
+          заправки або ТО.
         </p>
       </main>
     );
@@ -79,6 +94,9 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
   const hasConsumption = months.some(
     (month) => month.consumptionPer100Km !== null,
   );
+  // Поки ТО жодного разу не вносили, друга серія скрізь нульова: легенда й
+  // окремі картки тільки питали б «а це що» там, де показувати нічого.
+  const hasService = months.some((month) => month.serviceCost > 0);
 
   return (
     <main className="flex flex-col gap-8 pt-8">
@@ -101,6 +119,27 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
             deltaPercent={percentChange(
               current.totalCost,
               previous?.totalCost ?? null,
+            )}
+            upIsGood={false}
+            className="col-span-2"
+          />
+          <StatTile
+            label="Пальне"
+            value={formatMoney(current.fuelCost)}
+            deltaPercent={percentChange(
+              current.fuelCost,
+              previous?.fuelCost ?? null,
+            )}
+            upIsGood={false}
+          />
+          {/* ТО показуємо завжди, навіть нулем: місяць без ремонту — це теж
+              відповідь, і краще прочитати нуль, ніж шукати зниклу картку. */}
+          <StatTile
+            label="ТО"
+            value={formatMoney(current.serviceCost)}
+            deltaPercent={percentChange(
+              current.serviceCost,
+              previous?.serviceCost ?? null,
             )}
             upIsGood={false}
           />
@@ -139,7 +178,6 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
             upIsGood={false}
             hint={current.consumptionPer100Km ? undefined : "немає показань"}
           />
-          <StatTile label="Заправок" value={String(current.fillCount)} />
           <StatTile
             label="Пробіг"
             value={
@@ -148,16 +186,24 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
                 : formatKilometers(current.distanceKm)
             }
           />
+          <StatTile label="Заправок" value={String(current.fillCount)} />
+          <StatTile label="Записів ТО" value={String(current.serviceCount)} />
         </div>
       </section>
 
       {hasCharts ? (
         <section className="flex flex-col gap-6">
-          <ChartCard title="Витрати по місяцях">
-            <MonthlyBarChart
-              data={toPoints(months, (month) => month.totalCost, formatMoney)}
-            />
-          </ChartCard>
+          {hasService ? (
+            <ChartCard title="Пальне і ТО по місяцях">
+              <MonthlyStackedBarChart data={toStackedPoints(months)} />
+            </ChartCard>
+          ) : (
+            <ChartCard title="Витрати по місяцях">
+              <MonthlyBarChart
+                data={toPoints(months, (month) => month.totalCost, formatMoney)}
+              />
+            </ChartCard>
+          )}
 
           <ChartCard title="Літри по місяцях">
             <MonthlyBarChart
@@ -202,10 +248,24 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
           <StatTile
             label="Витрачено"
             value={formatMoney(totals.totalCost)}
+            className="col-span-2"
+          />
+          <StatTile
+            label="Пальне"
+            value={formatMoney(totals.fuelCost)}
             hint={`${totals.fillCount} ${pluralize(totals.fillCount, {
               one: "заправка",
               few: "заправки",
               many: "заправок",
+            })}`}
+          />
+          <StatTile
+            label="ТО"
+            value={formatMoney(totals.serviceCost)}
+            hint={`${totals.serviceCount} ${pluralize(totals.serviceCount, {
+              one: "запис",
+              few: "записи",
+              many: "записів",
             })}`}
           />
           <StatTile label="Залито" value={formatLiters(totals.liters)} />
@@ -234,9 +294,19 @@ export function StatsView({ overview }: { overview: StatsOverview }) {
                 : "—"
             }
           />
+          {/* Дві ціни кілометра поруч: різниця між ними і є ціна володіння —
+              те, чого не видно, поки ТО лежить окремою купкою. */}
           <StatTile
-            label="Вартість кілометра"
-            value={totals.costPerKm ? formatMoney(totals.costPerKm) : "—"}
+            label="Кілометр на пальному"
+            value={
+              totals.fuelCostPerKm ? formatMoney(totals.fuelCostPerKm) : "—"
+            }
+          />
+          <StatTile
+            label="Кілометр разом із ТО"
+            value={
+              totals.totalCostPerKm ? formatMoney(totals.totalCostPerKm) : "—"
+            }
           />
         </div>
       </section>
@@ -256,8 +326,9 @@ function Header() {
 /**
  * Обгортка графіка.
  *
- * Заголовок картки — єдине, що називає серію: легенди тут нема свідомо, бо
- * серія одна й колір нікого ні від кого не відрізняє.
+ * Легенду, якщо вона потрібна, малює сам графік: вона має стояти в тій самій
+ * системі координат, що й серії, і знати їхні кольори. Картка ж лише називає
+ * те, що всередині, — і односерійному графіку цього досить.
  */
 function ChartCard({
   title,
